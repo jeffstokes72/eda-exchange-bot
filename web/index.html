@@ -33,7 +33,7 @@
           </select>
         </label>
         <label>Remember Exchange ID
-          <input id="manualExchangeId" type="number" min="1" step="1" placeholder="add empty exchange id">
+          <input id="manualExchangeId" type="text" inputmode="numeric" pattern="[1-9][0-9]*" placeholder="add empty exchange id">
         </label>
         <label>Schematic Listings Per Grade
           <input id="schematicPerGrade" type="number" min="1" max="20" step="1" value="2">
@@ -45,7 +45,7 @@
           <input id="autoBuybackInterval" type="number" min="10" max="1440" step="1" value="30">
         </label>
         <label class="checkbox-line"><input id="schematicGrades" type="checkbox" checked> List schematics at grades 1-5</label>
-        <label class="checkbox-line"><input id="clearExisting" type="checkbox" checked> Clear existing EDA bot NPC sell listings before seeding</label>
+        <label class="checkbox-line"><input id="clearExisting" type="checkbox" checked> Clear the selected exchange's EDA bot NPC sell listings before seeding</label>
         <label class="checkbox-line"><input id="autoBuyback" type="checkbox"> Auto buyback while this page is open</label>
       </div>
       <div class="button-row">
