@@ -41,6 +41,27 @@
   // expire or the seller's item is consumed with no Solari paid out.
   const PAYMENT_SENTINEL_EXPIRY = 999999999;
 
+  // PostgreSQL BIGINT ids can exceed Number.MAX_SAFE_INTEGER (2^53 - 1), so
+  // exchange ids are kept as validated decimal strings end-to-end and are
+  // never converted with Number(). BigInt is used only where numeric
+  // comparison or sorting is required.
+  const EXCHANGE_ID_PATTERN = /^[1-9][0-9]*$/;
+  const PG_BIGINT_MAX = 9223372036854775807n;
+
+  function normalizeExchangeId(value) {
+    const raw = String(value ?? "").trim();
+    if (!EXCHANGE_ID_PATTERN.test(raw)) return null;
+    if (BigInt(raw) > PG_BIGINT_MAX) return null;
+    return raw;
+  }
+  function compareExchangeIds(left, right) {
+    const a = BigInt(left);
+    const b = BigInt(right);
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  }
+
   function escapeHtml(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
   }
@@ -77,7 +98,7 @@
   function currentExchangeIdValue() {
     const raw = String(exchangeIdEl.value || "").trim();
     if (!raw) throw new Error("Choose an exchange before running this action.");
-    const id = clampInteger(Number(raw), 0, 1, Number.MAX_SAFE_INTEGER);
+    const id = normalizeExchangeId(raw);
     if (!id) throw new Error("Exchange selection is invalid.");
     return id;
   }
@@ -118,20 +139,21 @@
   function rememberedExchangeIds() {
     try {
       const parsed = JSON.parse(localStorage.getItem(rememberedExchangeStorageKey) || "[]");
-      return Array.isArray(parsed) ? parsed.map(Number).filter((id) => Number.isInteger(id) && id > 0) : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map(normalizeExchangeId).filter((id) => id !== null);
     } catch {
       return [];
     }
   }
   function saveRememberedExchangeIds(ids) {
-    const normalized = Array.from(new Set(ids.map(Number).filter((id) => Number.isInteger(id) && id > 0))).sort((a, b) => a - b);
+    const normalized = Array.from(new Set(ids.map(normalizeExchangeId).filter((id) => id !== null))).sort(compareExchangeIds);
     localStorage.setItem(rememberedExchangeStorageKey, JSON.stringify(normalized));
   }
   function rememberExchangeId(id) {
-    const numericId = Number(id);
-    if (!Number.isInteger(numericId) || numericId < 1) throw new Error("Exchange ID must be a positive whole number.");
-    saveRememberedExchangeIds([...rememberedExchangeIds(), numericId]);
-    return numericId;
+    const normalizedId = normalizeExchangeId(id);
+    if (!normalizedId) throw new Error("Exchange ID must be a positive whole number.");
+    saveRememberedExchangeIds([...rememberedExchangeIds(), normalizedId]);
+    return normalizedId;
   }
 
   function requestBridge(action, requestPayload = {}) {
@@ -234,7 +256,9 @@
   function renderExchangeOptions(rows, preferredId = exchangeIdEl.value) {
     const discovered = (rows || [])
       .map((row) => ({
-        id: Number(row.exchange_id),
+        // exchange_id arrives as text from SQL and must stay a string: BIGINT
+        // ids above Number.MAX_SAFE_INTEGER lose precision through Number().
+        id: normalizeExchangeId(row.exchange_id),
         orderCount: Number(row.order_count || 0),
         botOrders: Number(row.bot_order_count || 0),
         npcFlagOrders: Number(row.npc_flag_order_count || 0),
@@ -243,7 +267,7 @@
         isGlobal: Boolean(row.is_global),
         source: "live"
       }))
-      .filter((row) => Number.isInteger(row.id) && row.id > 0);
+      .filter((row) => row.id !== null);
 
     saveRememberedExchangeIds([...rememberedExchangeIds(), ...discovered.map((exchange) => exchange.id)]);
 
@@ -271,7 +295,7 @@
         const rightHasAp = right.accessPoints > 0 ? 0 : 1;
         if (leftHasAp !== rightHasAp) return leftHasAp - rightHasAp;
         if (left.isGlobal !== right.isGlobal) return left.isGlobal ? 1 : -1;
-        return left.id - right.id;
+        return compareExchangeIds(left.id, right.id);
       });
 
     if (!options.length) {
@@ -372,23 +396,28 @@ ORDER BY is_global ASC, k.exchange_id ASC;`
   function buildSeedSql() {
     const rows = rowsForCurrentMultiplier();
     const valuesSql = valuesForSeedRows(rows);
+    const exchangeSql = currentExchangeIdSql();
+    // Pre-seed cleanup is scoped to the selected exchange: without the
+    // exchange_id condition, reseeding one exchange would delete the bot's
+    // listings from every other seeded exchange.
     const clearSql = clearExistingEl.checked ? `
 DO $$
 DECLARE
     v_owner_id BIGINT;
+    v_exchange_id BIGINT;
     v_item_ids BIGINT[];
 BEGIN
+    ${exchangeSql}
     SELECT id INTO v_owner_id FROM dune.actors WHERE class = 'Revy' LIMIT 1;
     IF v_owner_id IS NOT NULL THEN
         SELECT ARRAY_AGG(item_id) INTO v_item_ids
         FROM dune.dune_exchange_orders
-        WHERE owner_id = v_owner_id AND item_id IS NOT NULL;
-        DELETE FROM dune.dune_exchange_sell_orders WHERE order_id IN (SELECT id FROM dune.dune_exchange_orders WHERE owner_id = v_owner_id);
-        DELETE FROM dune.dune_exchange_orders WHERE owner_id = v_owner_id;
+        WHERE owner_id = v_owner_id AND exchange_id = v_exchange_id AND item_id IS NOT NULL;
+        DELETE FROM dune.dune_exchange_sell_orders WHERE order_id IN (SELECT id FROM dune.dune_exchange_orders WHERE owner_id = v_owner_id AND exchange_id = v_exchange_id);
+        DELETE FROM dune.dune_exchange_orders WHERE owner_id = v_owner_id AND exchange_id = v_exchange_id;
         IF v_item_ids IS NOT NULL THEN DELETE FROM dune.items WHERE id = ANY(v_item_ids); END IF;
     END IF;
 END $$;` : "";
-    const exchangeSql = currentExchangeIdSql();
     return `BEGIN;
 CREATE TEMP TABLE market_seed_plan (template_id TEXT NOT NULL, stack_size BIGINT NOT NULL, item_price BIGINT NOT NULL, category_mask INTEGER NOT NULL, category_depth SMALLINT NOT NULL, quality_level BIGINT NOT NULL, seed_kind TEXT NOT NULL, listing_count INTEGER NOT NULL) ON COMMIT DROP;
 CREATE TEMP TABLE market_seed_result (status TEXT NOT NULL, exchange_id BIGINT NOT NULL, access_point_id BIGINT NOT NULL, owner_id BIGINT NOT NULL, inventory_id BIGINT NOT NULL) ON COMMIT DROP;
@@ -626,7 +655,8 @@ COMMIT;`;
       statusEl.textContent = "Exchange list is not loaded yet. Refresh exchanges before seeding.";
       return false;
     }
-    if (confirmPrompt && !confirm(`${label}? RedBlink will create a database backup before this write. This may take some time.`)) return false;
+    const confirmDetail = options.confirmDetail ? ` ${options.confirmDetail}` : "";
+    if (confirmPrompt && !confirm(`${label}?${confirmDetail} RedBlink will create a database backup before this write. This may take some time.`)) return false;
     statusEl.className = "status";
     statusEl.textContent = `${label} starting. RedBlink is creating a backup before the database write...`;
     resultEl.textContent = "Running...";
@@ -762,7 +792,9 @@ COMMIT;`;
   document.getElementById("addExchange").addEventListener("click", addManualExchange);
   document.getElementById("seedMarket").addEventListener("click", () => void runWrite("Seed NPC sell market", buildSeedSql));
   document.getElementById("buySweep").addEventListener("click", () => void runWrite("Run buyback sweep", buildBuybackSql));
-  document.getElementById("clearNpc").addEventListener("click", () => void runWrite("Clear EDA NPC listings", buildClearNpcSql));
+  document.getElementById("clearNpc").addEventListener("click", () => void runWrite("Clear EDA NPC listings", buildClearNpcSql, {
+    confirmDetail: "This removes the EDA bot's listings from ALL exchanges, not just the selected one."
+  }));
   document.getElementById("dropUnsafe").addEventListener("click", () => void runWrite("Drop unsafe NPC listings", buildDropUnsafeSql));
   window.setInterval(autoBuybackTick, 15000);
   loadSeedPlan();

@@ -51,7 +51,9 @@ web/dune-addon-bridge.js   Helper for calling console APIs.
 web/market-seed-plan.json  Bundled Easy Dune Admin market seed plan.
 scripts/validate.js        Manifest validation.
 scripts/package.sh         Local packaging.
-.github/workflows/         GitHub validation and release packaging.
+tests/                     Behavioral tests (jsdom UI harness + PostgreSQL).
+package.json               Development-only test harness dependencies.
+.github/workflows/         GitHub validation, tests, and release packaging.
 ```
 
 The addon package itself is only `addon.json` plus `web/`.
@@ -75,6 +77,25 @@ credentials.
 ```bash
 node scripts/validate.js
 ```
+
+## Test
+
+The behavioral tests load the real addon page in jsdom with a mock RedBlink
+bridge, and execute the SQL the addon generates against a real PostgreSQL
+server using a minimal replica of the exchange schema
+(`tests/fixtures/dune-schema.sql`). They cover 64-bit exchange-id
+preservation, exchange-scoped seeding cleanup, global cleanup, buyback SQL
+generation and payment records, and manual/automatic buyback concurrency.
+
+```bash
+npm install
+npm test
+```
+
+A reachable PostgreSQL server is required for the `db-*.test.js` files; they
+connect via the standard `PG*` environment variables (or the local socket)
+and create/drop their own `eda_bot_test_*` databases. When `psql` is not
+available those tests are skipped.
 
 ## Local Development
 

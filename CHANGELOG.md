@@ -4,6 +4,54 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.9.1 - 2026-07-19
+
+Fixes for the two blocking issues from RedBlink's 0.9.0 review, plus the
+behavioral test suite requested with them.
+
+### Fixed
+
+- **BIGINT exchange ids preserved exactly**: exchange ids are now handled as
+  validated decimal strings (`/^[1-9][0-9]*$/`, capped at the PostgreSQL
+  BIGINT maximum) end-to-end: the dropdown, the remembered-id storage, and
+  the generated SQL. They are never converted with `Number()`, so BIGINT ids
+  above `Number.MAX_SAFE_INTEGER` (2^53 - 1) can no longer lose precision and
+  target the wrong exchange. `BigInt` is used only for numeric sorting of the
+  dropdown. The manual "Remember Exchange ID" input became a text field with
+  numeric input hints so the browser cannot round large ids either.
+- **"Clear existing listings before seeding" is scoped to the selected
+  exchange**: the pre-seed cleanup now resolves the selected exchange first
+  and constrains every order, sell-order, and backing-item deletion to
+  `owner_id = v_owner_id AND exchange_id = v_exchange_id`. Reseeding one
+  exchange no longer removes the bot's listings from every other seeded
+  exchange. The checkbox label now says "the selected exchange's" listings.
+- The explicit **Clear EDA NPC Listings** action intentionally stays global,
+  and its confirmation prompt now states that it removes the bot's listings
+  from ALL exchanges, not just the selected one.
+
+### Tests
+
+New behavioral test suite (`npm test`, run by CI): jsdom drives the real
+addon page against a mock RedBlink bridge, and the captured SQL is executed
+against a real PostgreSQL server with a minimal replica of the exchange
+schema (`tests/fixtures/dune-schema.sql`). Covered:
+
+- Exact preservation of 64-bit exchange ids (2^53 + 1 and BIGINT max)
+  through the dropdown, localStorage, generated SQL, and database rows.
+- Seeding cleanup affecting only the selected exchange (reseeding exchange A
+  leaves exchange B's orders byte-for-byte intact).
+- Global cleanup behavior (bot listings removed from every exchange, player
+  listings spared, confirmation warns about all exchanges).
+- Buyback SQL generation and payment records (threshold rounding, grade
+  normalization, per-unit seller payments with the never-expires sentinel,
+  fulfilled-order audit rows, Solari balance movement, exchange scoping).
+- Manual and automatic buyback concurrency (single write in flight, auto
+  ticks skipped during manual writes, no immediate run on arming, idle ticks
+  skip the write).
+
+The test harness (`package.json`, `tests/`) is development-only; the shipped
+addon package remains `addon.json` plus `web/`.
+
 ## 0.9.0 - 2026-07-11
 
 ### Template adherence ([dune-docker-addon-template](https://github.com/Red-Blink/dune-docker-addon-template))
