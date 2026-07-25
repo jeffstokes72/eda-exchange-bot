@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-07-25T00:54:47Z",
+  "addons": [
+    {
+      "id": "leadership-board-demo",
+      "name": "Leadership Board Demo",
+      "description": "Demo addon showing a ranked player overview with level, faction, guild, status, and last-seen details.",
+      "author": "Red-Blink",
+      "version": "1.0.0",
+      "lifecycle": "active",
+      "lifecycleMessage": "",
+      "lifecycleUrl": "",
+      "manifestUrl": "https://raw.githubusercontent.com/Red-Blink/dune-docker-addons/main/addons/leadership-board-demo.json"
+    },
+    {
+      "id": "eda-exchange-bot",
+      "name": "EDA Exchange Bot",
+      "description": "Easy Dune Admin exchange seeder controls for RedBlink Dune Docker Console.",
+      "author": "n00bGames, jeffstokes72",
+      "version": "0.11.0",
+      "lifecycle": "active",
+      "lifecycleMessage": "",
+      "lifecycleUrl": "",
+      "manifestUrl": "https://raw.githubusercontent.com/Red-Blink/dune-docker-addons/main/addons/eda-exchange-bot.json"
+    },
+    {
+      "id": "dune-ops-observability",
+      "name": "Dune Ops Observability",
+      "description": "Read-only operations addon providing NOC dashboard, player activity, spice field tracking, and OPS health monitoring through the Console bridge.",
+      "author": "DarkDante",
+      "version": "0.4.1",
+      "lifecycle": "active",
+      "lifecycleMessage": "",
+      "lifecycleUrl": "",
+      "manifestUrl": "https://raw.githubusercontent.com/Red-Blink/dune-docker-addons/main/addons/dune-ops-observability.json"
+    },
+    {
+      "id": "dune-airdrop-addon",
+      "name": "Airdrop Manager",
+      "description": "Standalone manager for playtime, daily streak, and weekly attendance-based G0 instant airdrops. WARNING: Automated airdrops require manually running a companion daemon container with the repository .env, host networking, scripts, and a Docker socket mount (which permits privileged Docker API operations).",
+      "author": "atobo",
+      "version": "1.3.7",
+      "lifecycle": "active",
+      "lifecycleMessage": "",
+      "lifecycleUrl": "",
+      "manifestUrl": "https://raw.githubusercontent.com/Red-Blink/dune-docker-addons/main/addons/dune-airdrop-addon.json"
+    }
+  ]
+}
