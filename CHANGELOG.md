@@ -4,6 +4,44 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.11.0 - 2026-07-25
+
+Full market seed overhaul from Easy Dune Admin's authoritative
+`item-data.json` catalog, with grades and durability baked into the plan.
+
+### Changed
+
+- **Regenerated `web/market-seed-plan.json`** from vendored
+  `data/item-data.json` via `scripts/generate-seed-plan.py` (~4300 unique
+  rows / ~8600 listings). Pricing follows EDA's vendor-price × rarity model
+  with grade multipliers `[1, 1, 1.25, 1.5, 1.75, 2]`.
+- **Schematic grades 1-5 are baked into the seed** (2 listings per grade).
+  The UI checkbox / per-grade / material-listings controls are removed; the
+  preview and seed SQL use the plan rows as shipped.
+- **Durability on NPC listings** is absolute **100–200** (base 100, inflated
+  by tier and quality grade up to 200). Seed SQL writes `durability_cur` /
+  `durability_max` from each plan row instead of hardcoded `1.0`.
+- **Stillsuits** are treated as rankable armor when the catalog marks them
+  gradeable. **Augments** and their schematics keep ranks. **Vehicle
+  components** are stocked without ranks (vehicle schematics still use the
+  normal schematic grade bake).
+- **Uniques** stock through tier 6; T6 gradeable gear (e.g. Dunewatcher)
+  includes stock (q0) plus ranks 1–5. Commodities use catalog `stack_max`
+  (e.g. Spice Residue 1000, Iron Ingot 500) with 2 listings each.
+- **Exclusions**: contracts, cosmetics/customization, construction, emotes,
+  mementos / plot / story / “green” items (Zantara’s Crysknife, Phaedra’s
+  Mask, The Jackal’s Blindfold, etc.), social wearables, and unusable set
+  packs (“Bene Gesserit set”-style bundles). Individual themed pieces such
+  as Acheronian armor remain.
+
+### Tests
+
+- New `tests/seed-plan.test.js` covers baked schematic/T6 grades, max
+  stacks, durability range, plot/set exclusions, and seed SQL durability
+  columns.
+- Harness fixture seed rows include durability; db seeding listing count
+  matches the no-UI-expansion plan (8 listings).
+
 ## 0.10.0 - 2026-07-24
 
 Unattended buyback through the console's new server-side addon scheduler

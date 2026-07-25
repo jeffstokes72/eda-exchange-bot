@@ -14,9 +14,6 @@
   const exchangeIdEl = document.getElementById("exchangeId");
   const manualExchangeIdEl = document.getElementById("manualExchangeId");
   const clearExistingEl = document.getElementById("clearExisting");
-  const schematicGradesEl = document.getElementById("schematicGrades");
-  const schematicPerGradeEl = document.getElementById("schematicPerGrade");
-  const materialListingsEl = document.getElementById("materialListings");
   const autoBuybackEl = document.getElementById("autoBuyback");
   const autoBuybackIntervalEl = document.getElementById("autoBuybackInterval");
   const serverScheduleSectionEl = document.getElementById("serverScheduleSection");
@@ -95,15 +92,9 @@
     else if (number >= 1000) step = 10;
     return Math.max(1, Math.round(number / step) * step);
   }
-  function gradedPrice(basePrice, grade) {
-    const mult = GRADE_MULTIPLIERS[clampInteger(grade, 0, 0, 5)] || 1.0;
-    return roundPrice(basePrice * mult);
-  }
   function currentMultiplier() { return clampInteger(multiplierEl.value, payload?.price_multiplier || 5, 1, 100); }
   function currentThreshold() { return clampInteger(thresholdEl.value, 60, 1, 100); }
   function currentMaxBuys() { return clampInteger(maxBuysEl.value, 500, 1, 5000); }
-  function currentSchematicPerGrade() { return clampInteger(schematicPerGradeEl.value, 2, 1, 20); }
-  function currentMaterialListings() { return clampInteger(materialListingsEl.value, 4, 1, 50); }
   function currentAutoIntervalMinutes() { return clampInteger(autoBuybackIntervalEl.value, 30, 10, 1440); }
 
   function currentExchangeIdValue() {
@@ -124,9 +115,6 @@
         buybackPercent: thresholdEl.value,
         maxBuys: maxBuysEl.value,
         clearExisting: clearExistingEl.checked,
-        schematicGrades: schematicGradesEl.checked,
-        schematicPerGrade: schematicPerGradeEl.value,
-        materialListings: materialListingsEl.value,
         autoBuyback: autoBuybackEl.checked,
         autoBuybackInterval: autoBuybackIntervalEl.value
       }));
@@ -140,9 +128,6 @@
     if (saved.buybackPercent != null) thresholdEl.value = String(saved.buybackPercent);
     if (saved.maxBuys != null) maxBuysEl.value = String(saved.maxBuys);
     if (typeof saved.clearExisting === "boolean") clearExistingEl.checked = saved.clearExisting;
-    if (typeof saved.schematicGrades === "boolean") schematicGradesEl.checked = saved.schematicGrades;
-    if (saved.schematicPerGrade != null) schematicPerGradeEl.value = String(saved.schematicPerGrade);
-    if (saved.materialListings != null) materialListingsEl.value = String(saved.materialListings);
     if (typeof saved.autoBuyback === "boolean") autoBuybackEl.checked = saved.autoBuyback;
     if (saved.autoBuybackInterval != null) autoBuybackIntervalEl.value = String(saved.autoBuybackInterval);
   }
@@ -182,39 +167,15 @@
     return roundPrice((Number(row.price) / sourceMultiplier) * currentMultiplier());
   }
 
-  // Base rows: bundled plan rows re-priced to the current multiplier, before
-  // schematic-grade expansion and material scaling.
+  // Bundled plan rows re-priced to the current multiplier. Schematic grades,
+  // T6 ranks, listing counts, and durability are already baked into the plan.
   function baseRowsForCurrentMultiplier() {
     if (!payload) return [];
     return (payload.rows || []).map((row) => ({ ...row, price: priceForRow(row) }));
   }
 
-  // Expanded rows: what actually gets previewed and seeded.
-  // - Schematics fan out to quality grades 1-5 (configurable listings per
-  //   grade, default 2 each) with grade-multiplied prices, replacing the
-  //   bundled grade-0 schematic row.
-  // - Materials (resource rows) get a configurable listing count each
-  //   (default 4) instead of the bundled single listing.
   function rowsForCurrentMultiplier() {
-    const base = baseRowsForCurrentMultiplier();
-    const perGrade = currentSchematicPerGrade();
-    const materialEach = currentMaterialListings();
-    const expandGrades = schematicGradesEl.checked;
-    const out = [];
-    for (const row of base) {
-      if (row.kind === "schematic" && expandGrades) {
-        for (let grade = 1; grade <= 5; grade++) {
-          out.push({ ...row, quality_level: grade, price: gradedPrice(row.price, grade), listings: perGrade });
-        }
-        continue;
-      }
-      if (row.kind === "resource") {
-        out.push({ ...row, listings: Math.max(Number(row.listings || 1), materialEach) });
-        continue;
-      }
-      out.push(row);
-    }
-    return out;
+    return baseRowsForCurrentMultiplier();
   }
 
   function renderSummary(rows = rowsForCurrentMultiplier()) {
@@ -260,7 +221,7 @@
     const rows = visibleRows();
     if (!rows.length) { tableEl.innerHTML = "<p>No seed rows match the current filter.</p>"; return; }
     const shown = rows.slice(0, 250);
-    tableEl.innerHTML = `<table><thead><tr><th>Name</th><th>Template</th><th>Kind</th><th>Grade</th><th>Listings</th><th>Stack</th><th>Price</th><th>Mask</th><th>Depth</th></tr></thead><tbody>${shown.map(row => `<tr><td>${escapeHtml(row.display_name)}</td><td>${escapeHtml(row.template_id)}</td><td>${escapeHtml(row.kind)}</td><td>${escapeHtml(formatNumber(row.quality_level || 0))}</td><td>${escapeHtml(formatNumber(row.listings))}</td><td>${escapeHtml(formatNumber(row.stack_size))}</td><td>${escapeHtml(formatNumber(row.price))}</td><td>${escapeHtml(row.category_mask)}</td><td>${escapeHtml(row.category_depth)}</td></tr>`).join("")}</tbody></table>`;
+    tableEl.innerHTML = `<table><thead><tr><th>Name</th><th>Template</th><th>Kind</th><th>Grade</th><th>Dur</th><th>Listings</th><th>Stack</th><th>Price</th><th>Mask</th><th>Depth</th></tr></thead><tbody>${shown.map(row => `<tr><td>${escapeHtml(row.display_name)}</td><td>${escapeHtml(row.template_id)}</td><td>${escapeHtml(row.kind)}</td><td>${escapeHtml(formatNumber(row.quality_level || 0))}</td><td>${escapeHtml(formatNumber(row.durability_max ?? 100))}</td><td>${escapeHtml(formatNumber(row.listings))}</td><td>${escapeHtml(formatNumber(row.stack_size))}</td><td>${escapeHtml(formatNumber(row.price))}</td><td>${escapeHtml(row.category_mask)}</td><td>${escapeHtml(row.category_depth)}</td></tr>`).join("")}</tbody></table>`;
     if (rows.length > shown.length) tableEl.insertAdjacentHTML("beforeend", `<p>Showing first ${shown.length.toLocaleString()} of ${rows.length.toLocaleString()} matching unique rows. Narrow the filter for more detail.</p>`);
   }
 
@@ -401,7 +362,23 @@ ORDER BY is_global ASC, k.exchange_id ASC;`
   }
 
   function valuesForSeedRows(rows) {
-    return rows.map(row => `(${[sqlLiteral(row.template_id), Number(row.stack_size), Number(row.price), Number(row.category_mask), Number(row.category_depth), Number(row.quality_level || 0), sqlLiteral(row.kind), Number(row.listings || 1)].join(",")})`).join(",\n");
+    return rows.map((row) => {
+      const durability = Number(row.durability_max ?? row.durability_cur ?? 100);
+      const durCur = Number(row.durability_cur ?? durability);
+      const durMax = Number(row.durability_max ?? durability);
+      return `(${[
+        sqlLiteral(row.template_id),
+        Number(row.stack_size),
+        Number(row.price),
+        Number(row.category_mask),
+        Number(row.category_depth),
+        Number(row.quality_level || 0),
+        sqlLiteral(row.kind),
+        Number(row.listings || 1),
+        durCur,
+        durMax
+      ].join(",")})`;
+    }).join(",\n");
   }
 
   function buildSeedSql() {
@@ -430,9 +407,9 @@ BEGIN
     END IF;
 END $$;` : "";
     return `BEGIN;
-CREATE TEMP TABLE market_seed_plan (template_id TEXT NOT NULL, stack_size BIGINT NOT NULL, item_price BIGINT NOT NULL, category_mask INTEGER NOT NULL, category_depth SMALLINT NOT NULL, quality_level BIGINT NOT NULL, seed_kind TEXT NOT NULL, listing_count INTEGER NOT NULL) ON COMMIT DROP;
+CREATE TEMP TABLE market_seed_plan (template_id TEXT NOT NULL, stack_size BIGINT NOT NULL, item_price BIGINT NOT NULL, category_mask INTEGER NOT NULL, category_depth SMALLINT NOT NULL, quality_level BIGINT NOT NULL, seed_kind TEXT NOT NULL, listing_count INTEGER NOT NULL, durability_cur DOUBLE PRECISION NOT NULL, durability_max DOUBLE PRECISION NOT NULL) ON COMMIT DROP;
 CREATE TEMP TABLE market_seed_result (status TEXT NOT NULL, exchange_id BIGINT NOT NULL, access_point_id BIGINT NOT NULL, owner_id BIGINT NOT NULL, inventory_id BIGINT NOT NULL) ON COMMIT DROP;
-INSERT INTO market_seed_plan (template_id, stack_size, item_price, category_mask, category_depth, quality_level, seed_kind, listing_count) VALUES
+INSERT INTO market_seed_plan (template_id, stack_size, item_price, category_mask, category_depth, quality_level, seed_kind, listing_count, durability_cur, durability_max) VALUES
 ${valuesSql};
 ${clearSql}
 DO $$
@@ -474,7 +451,7 @@ BEGIN
         FOR idx IN 1..GREATEST(1, rec.listing_count) LOOP
             INSERT INTO dune.items (inventory_id, stack_size, position_index, template_id, quality_level, stats) VALUES (v_inventory_id, rec.stack_size, v_next_position, rec.template_id, rec.quality_level, '{}') RETURNING id INTO v_item_id;
             v_next_position := v_next_position + 1;
-            INSERT INTO dune.dune_exchange_orders (exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, durability_cur, durability_max, category_mask, category_depth, item_price, quality_level, item_id) VALUES (v_exchange_id, v_access_point_id, v_owner_id, TRUE, v_expiration_time, rec.template_id, 1.0, 1.0, rec.category_mask, rec.category_depth, rec.item_price, rec.quality_level, v_item_id) RETURNING id INTO v_order_id;
+            INSERT INTO dune.dune_exchange_orders (exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, durability_cur, durability_max, category_mask, category_depth, item_price, quality_level, item_id) VALUES (v_exchange_id, v_access_point_id, v_owner_id, TRUE, v_expiration_time, rec.template_id, rec.durability_cur, rec.durability_max, rec.category_mask, rec.category_depth, rec.item_price, rec.quality_level, v_item_id) RETURNING id INTO v_order_id;
             INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (v_order_id, rec.stack_size, rec.item_price);
         END LOOP;
     END LOOP;
@@ -992,9 +969,7 @@ COMMIT;`;
 
   filterEl.addEventListener("input", renderRows);
   kindFilterEl.addEventListener("change", renderRows);
-  for (const el of [multiplierEl, schematicGradesEl, schematicPerGradeEl, materialListingsEl]) {
-    el.addEventListener("change", () => { persistSettings(); refreshPreview(); });
-  }
+  multiplierEl.addEventListener("change", () => { persistSettings(); refreshPreview(); });
   for (const el of [thresholdEl, maxBuysEl, clearExistingEl]) {
     el.addEventListener("change", persistSettings);
   }
