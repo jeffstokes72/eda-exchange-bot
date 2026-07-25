@@ -24,7 +24,8 @@ them.
 - **Grades baked into the seed**: schematics ship at quality grades 1–5 (2
   listings each); T6 gradeable armor/weapons/stillsuits/augments ship stock
   (q0) plus ranks 1–5. Vehicle components and commodities are unranked.
-  Durability on listings scales **100–200** by tier and grade.
+  Durability **100–200** by tier/grade is written into item `stats`
+  (`FItemStackAndDurabilityStats`); exchange order wear stays `1.0/1.0`.
 - **Commodities at max stack**: materials use catalog `stack_max` (2 listings
   each). Regenerate with `python3 scripts/generate-seed-plan.py`.
 - **Buyback sweeps**: buys eligible player sell listings at or below a

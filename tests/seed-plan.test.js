@@ -64,13 +64,16 @@ test("seed plan excludes plot items, set packs, and social/emote/contract junk",
   assert.ok(names.some((n) => /Acheronian/i.test(n)));
 });
 
-test("seed SQL writes baked durability instead of hardcoded 1.0", async () => {
+test("seed SQL writes absolute durability into item stats and order wear at 1.0", async () => {
   const { createHarness, exchangeRow } = require("./helpers/harness");
   const harness = await createHarness();
   await harness.loadExchangesWithRows([exchangeRow({ exchange_id: "77" })]);
   const sql = await harness.clickAndCaptureSql("seedMarket");
   assert.ok(sql);
-  assert.match(sql, /durability_cur DOUBLE PRECISION NOT NULL/);
-  assert.match(sql, /rec\.durability_cur, rec\.durability_max/);
-  assert.doesNotMatch(sql, /rec\.template_id, 1\.0, 1\.0, rec\.category_mask/);
+  assert.match(sql, /item_stats TEXT NOT NULL/);
+  assert.match(sql, /FItemStackAndDurabilityStats/);
+  assert.match(sql, /"MaxDurability":100/);
+  assert.match(sql, /rec\.template_id, 1\.0, 1\.0, rec\.category_mask/);
+  assert.match(sql, /rec\.quality_level, rec\.item_stats\)/);
+  assert.doesNotMatch(sql, /rec\.durability_cur, rec\.durability_max/);
 });

@@ -8,7 +8,8 @@ Rules (see CHANGELOG / operator notes):
 - T6 gradeable armor/weapons/stillsuits/augments: stock (q0) + ranks 1-5, 2 each.
 - Schematics: bake grades 1-5 (2 each); no separate UI checkbox.
 - Vehicles/tools/ammo/consumables/fuel/cartography: stock only, 2 listings.
-- Durability on listings scales 100..200 by tier and quality grade.
+- Durability on listings scales 100..200 by tier and quality grade; seed SQL
+  writes that into item stats (orders keep wear 1.0/1.0).
 """
 
 from __future__ import annotations
@@ -408,7 +409,7 @@ def main() -> None:
         "notes": [
             "Generated from Easy Dune Admin item-data.json via scripts/generate-seed-plan.py.",
             "Schematic grades 1-5 and T6 rankable gear grades 0-5 are baked into rows (2 listings each).",
-            "Commodities use stack_max from the catalog. Durability scales 100-200 by tier/grade.",
+            "Commodities use stack_max from the catalog. Absolute durability 100-200 by tier/grade is stored on plan rows for item stats seeding; exchange order wear stays 1.0/1.0.",
             "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story items, social wearables, unusable set packs.",
             "Write actions run through RedBlink's permissioned database:write addon bridge.",
         ],

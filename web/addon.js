@@ -361,24 +361,39 @@ ORDER BY is_global ASC, k.exchange_id ASC;`
     statusEl.textContent = `Preview ready from EDA ${payload.panel_version}; ${renderedRows.length.toLocaleString()} unique rows at ${currentMultiplier()}x.`;
   }
 
+  function clampDurability(value, fallback = 100) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.max(100, Math.min(200, number));
+  }
+
+  // Absolute durability lives on dune.items.stats (FItemStackAndDurabilityStats),
+  // matching RedBlink/EDA item grants. Exchange order durability_* stays at the
+  // normalized wear fraction 1.0/1.0 (full condition).
+  function itemStatsJson(row) {
+    const durMax = clampDurability(row.durability_max ?? row.durability_cur ?? 100);
+    const durCur = Math.min(clampDurability(row.durability_cur ?? durMax, durMax), durMax);
+    return JSON.stringify({
+      FItemStackAndDurabilityStats: [[], {
+        CurrentDurability: durCur,
+        MaxDurability: durMax,
+        DecayedMaxDurability: durMax
+      }]
+    });
+  }
+
   function valuesForSeedRows(rows) {
-    return rows.map((row) => {
-      const durability = Number(row.durability_max ?? row.durability_cur ?? 100);
-      const durCur = Number(row.durability_cur ?? durability);
-      const durMax = Number(row.durability_max ?? durability);
-      return `(${[
-        sqlLiteral(row.template_id),
-        Number(row.stack_size),
-        Number(row.price),
-        Number(row.category_mask),
-        Number(row.category_depth),
-        Number(row.quality_level || 0),
-        sqlLiteral(row.kind),
-        Number(row.listings || 1),
-        durCur,
-        durMax
-      ].join(",")})`;
-    }).join(",\n");
+    return rows.map((row) => `(${[
+      sqlLiteral(row.template_id),
+      Number(row.stack_size),
+      Number(row.price),
+      Number(row.category_mask),
+      Number(row.category_depth),
+      Number(row.quality_level || 0),
+      sqlLiteral(row.kind),
+      Number(row.listings || 1),
+      sqlLiteral(itemStatsJson(row))
+    ].join(",")})`).join(",\n");
   }
 
   function buildSeedSql() {
@@ -407,9 +422,9 @@ BEGIN
     END IF;
 END $$;` : "";
     return `BEGIN;
-CREATE TEMP TABLE market_seed_plan (template_id TEXT NOT NULL, stack_size BIGINT NOT NULL, item_price BIGINT NOT NULL, category_mask INTEGER NOT NULL, category_depth SMALLINT NOT NULL, quality_level BIGINT NOT NULL, seed_kind TEXT NOT NULL, listing_count INTEGER NOT NULL, durability_cur DOUBLE PRECISION NOT NULL, durability_max DOUBLE PRECISION NOT NULL) ON COMMIT DROP;
+CREATE TEMP TABLE market_seed_plan (template_id TEXT NOT NULL, stack_size BIGINT NOT NULL, item_price BIGINT NOT NULL, category_mask INTEGER NOT NULL, category_depth SMALLINT NOT NULL, quality_level BIGINT NOT NULL, seed_kind TEXT NOT NULL, listing_count INTEGER NOT NULL, item_stats TEXT NOT NULL) ON COMMIT DROP;
 CREATE TEMP TABLE market_seed_result (status TEXT NOT NULL, exchange_id BIGINT NOT NULL, access_point_id BIGINT NOT NULL, owner_id BIGINT NOT NULL, inventory_id BIGINT NOT NULL) ON COMMIT DROP;
-INSERT INTO market_seed_plan (template_id, stack_size, item_price, category_mask, category_depth, quality_level, seed_kind, listing_count, durability_cur, durability_max) VALUES
+INSERT INTO market_seed_plan (template_id, stack_size, item_price, category_mask, category_depth, quality_level, seed_kind, listing_count, item_stats) VALUES
 ${valuesSql};
 ${clearSql}
 DO $$
@@ -449,9 +464,9 @@ BEGIN
     FROM dune.dune_exchange_orders WHERE expiration_time < ${PAYMENT_SENTINEL_EXPIRY};
     FOR rec IN SELECT * FROM market_seed_plan ORDER BY seed_kind, template_id, quality_level LOOP
         FOR idx IN 1..GREATEST(1, rec.listing_count) LOOP
-            INSERT INTO dune.items (inventory_id, stack_size, position_index, template_id, quality_level, stats) VALUES (v_inventory_id, rec.stack_size, v_next_position, rec.template_id, rec.quality_level, '{}') RETURNING id INTO v_item_id;
+            INSERT INTO dune.items (inventory_id, stack_size, position_index, template_id, quality_level, stats) VALUES (v_inventory_id, rec.stack_size, v_next_position, rec.template_id, rec.quality_level, rec.item_stats) RETURNING id INTO v_item_id;
             v_next_position := v_next_position + 1;
-            INSERT INTO dune.dune_exchange_orders (exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, durability_cur, durability_max, category_mask, category_depth, item_price, quality_level, item_id) VALUES (v_exchange_id, v_access_point_id, v_owner_id, TRUE, v_expiration_time, rec.template_id, rec.durability_cur, rec.durability_max, rec.category_mask, rec.category_depth, rec.item_price, rec.quality_level, v_item_id) RETURNING id INTO v_order_id;
+            INSERT INTO dune.dune_exchange_orders (exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, durability_cur, durability_max, category_mask, category_depth, item_price, quality_level, item_id) VALUES (v_exchange_id, v_access_point_id, v_owner_id, TRUE, v_expiration_time, rec.template_id, 1.0, 1.0, rec.category_mask, rec.category_depth, rec.item_price, rec.quality_level, v_item_id) RETURNING id INTO v_order_id;
             INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (v_order_id, rec.stack_size, rec.item_price);
         END LOOP;
     END LOOP;

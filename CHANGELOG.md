@@ -18,9 +18,11 @@ Full market seed overhaul from Easy Dune Admin's authoritative
 - **Schematic grades 1-5 are baked into the seed** (2 listings per grade).
   The UI checkbox / per-grade / material-listings controls are removed; the
   preview and seed SQL use the plan rows as shipped.
-- **Durability on NPC listings** is absolute **100–200** (base 100, inflated
-  by tier and quality grade up to 200). Seed SQL writes `durability_cur` /
-  `durability_max` from each plan row instead of hardcoded `1.0`.
+- **Durability on seeded items** is absolute **100–200** (base 100, inflated
+  by tier and quality grade up to 200), written into
+  `dune.items.stats` as `FItemStackAndDurabilityStats`. Exchange order
+  `durability_cur` / `durability_max` stay at the normalized wear fraction
+  **1.0 / 1.0** (full condition), matching EDA.
 - **Stillsuits** are treated as rankable armor when the catalog marks them
   gradeable. **Augments** and their schematics keep ranks. **Vehicle
   components** are stocked without ranks (vehicle schematics still use the
@@ -37,8 +39,8 @@ Full market seed overhaul from Easy Dune Admin's authoritative
 ### Tests
 
 - New `tests/seed-plan.test.js` covers baked schematic/T6 grades, max
-  stacks, durability range, plot/set exclusions, and seed SQL durability
-  columns.
+  stacks, durability range, plot/set exclusions, and seed SQL writing
+  absolute durability into item stats while keeping order wear at 1.0.
 - Harness fixture seed rows include durability; db seeding listing count
   matches the no-UI-expansion plan (12 listings).
 - Buyback caps use the seeded **grade 0** (else schematic grade 1) price

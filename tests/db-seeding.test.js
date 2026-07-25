@@ -75,6 +75,15 @@ test("seeding and cleanup against PostgreSQL", { skip: !available && "psql is no
     // Backing items land in exchange A's inventory with matching sell orders.
     assert.equal(db.queryOne(DB_NAME, `SELECT COUNT(*) FROM dune.items WHERE inventory_id = ${EX_A}`), String(LISTINGS_PER_SEED));
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_sell_orders"), String(LISTINGS_PER_SEED));
+    // Absolute durability is on item stats; order wear stays normalized 1.0/1.0.
+    assert.match(
+      db.queryOne(DB_NAME, `SELECT stats FROM dune.items WHERE inventory_id = ${EX_A} AND template_id = 'TestAugment' AND quality_level = 0 LIMIT 1`),
+      /"MaxDurability":180/
+    );
+    assert.equal(
+      db.queryOne(DB_NAME, `SELECT durability_cur::text || '/' || durability_max::text FROM dune.dune_exchange_orders WHERE exchange_id = ${EX_A} LIMIT 1`),
+      "1/1"
+    );
   });
 
   await t.test("seeding a second exchange leaves the first untouched", async () => {
