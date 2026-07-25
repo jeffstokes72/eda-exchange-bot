@@ -40,7 +40,11 @@ Full market seed overhaul from Easy Dune Admin's authoritative
   stacks, durability range, plot/set exclusions, and seed SQL durability
   columns.
 - Harness fixture seed rows include durability; db seeding listing count
-  matches the no-UI-expansion plan (8 listings).
+  matches the no-UI-expansion plan (12 listings).
+- Buyback caps use the seeded **grade 0** (else schematic grade 1) price
+  directly so stepped rounding on higher grades cannot inflate recovered
+  bases (~6.7% overpay). Sweeps and eligibility probes require
+  `item_price > 0` and stack `> 0`.
 
 ## 0.10.0 - 2026-07-24
 

@@ -461,22 +461,51 @@ SELECT r.status, r.exchange_id, r.access_point_id, r.owner_id, r.inventory_id, S
 COMMIT;`;
   }
 
-  // Buyback plan: per-template base (grade 0) max unit price scaled by the
-  // buyback threshold percent. Grade-adjusted reference prices are computed in
-  // SQL from the player order's quality_level using the same grade multipliers
-  // the seeder uses, matching EDA's grade-aware buy tick.
+  // Buyback eligibility shared by the write sweep, diagnostics, and the
+  // read-only probe: never buy non-positive prices or empty stacks (a negative
+  // player listing would otherwise match <= cap and credit the bot), and apply
+  // the grade multiplier to the plan's grade-0/1 base cap in SQL.
+  const BUYBACK_ELIGIBLE_PREDICATE = `o.item_price > 0 AND COALESCE(i.stack_size, s.initial_stack_size, 1) > 0 AND o.item_price <= FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL})`;
+
+  // Buyback plan: per-template base (grade 0, else schematic grade 1) max unit
+  // price scaled by the buyback threshold percent. Grade-adjusted reference
+  // prices for player listings are computed in SQL from o.quality_level using
+  // the same grade multipliers the seeder uses. Prefer the seeded base-grade
+  // row's price so stepped round_price on higher grades cannot inflate the
+  // recovered base (dividing a rounded q3/q5 price overshoots by up to ~7%).
+  function buybackBasePrice(templateRows) {
+    const graded = templateRows.map((row) => ({
+      row,
+      grade: clampInteger(row.quality_level, 0, 0, 5),
+      price: Math.round(Number(row.price))
+    }));
+    const base =
+      graded.find((entry) => entry.grade === 0) ||
+      graded.find((entry) => entry.grade === 1) ||
+      null;
+    if (base && Number.isFinite(base.price) && base.price > 0) return base.price;
+    // Sparse fixtures / partial plans with only higher grades: undo one mult.
+    let best = 0;
+    for (const entry of graded) {
+      const mult = GRADE_MULTIPLIERS[entry.grade] || 1.0;
+      const recovered = Math.round(entry.price / mult);
+      if (Number.isFinite(recovered)) best = Math.max(best, recovered);
+    }
+    return best;
+  }
+
   function buybackPlanValuesSql() {
     const rows = baseRowsForCurrentMultiplier();
     const threshold = currentThreshold();
-    const maxPrice = new Map();
+    const byTemplate = new Map();
     for (const row of rows) {
-      // Normalize to a grade-0 price: some bundled plan rows carry a non-zero
-      // quality_level with an already grade-adjusted price, and the SQL applies
-      // the grade multiplier itself. Without this the multiplier stacks twice.
-      const grade = clampInteger(row.quality_level, 0, 0, 5);
-      const mult = GRADE_MULTIPLIERS[grade] || 1.0;
-      const grade0Price = Math.round(Number(row.price) / mult);
-      maxPrice.set(row.template_id, Math.max(maxPrice.get(row.template_id) || 0, grade0Price));
+      const list = byTemplate.get(row.template_id) || [];
+      list.push(row);
+      byTemplate.set(row.template_id, list);
+    }
+    const maxPrice = new Map();
+    for (const [templateId, templateRows] of byTemplate) {
+      maxPrice.set(templateId, Math.max(1, buybackBasePrice(templateRows) || 0));
     }
     return Array.from(maxPrice.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([templateId, price]) => `(${sqlLiteral(templateId)},${Math.max(1, Math.floor((price * threshold + 99) / 100))})`).join(",\n");
   }
@@ -508,14 +537,14 @@ BEGIN
     IF v_balance < 1000000000000 THEN
         PERFORM dune.dune_exchange_modify_user_solari_balance(v_owner_id, 9000000000000 - v_balance);
     END IF;
-    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price <= FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL})), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL})), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN market_buy_plan p ON p.template_id = o.template_id WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
+    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND ${BUYBACK_ELIGIBLE_PREDICATE}), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > 0 AND COALESCE(i.stack_size, s.initial_stack_size, 1) > 0 AND o.item_price > FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL})), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id LEFT JOIN market_buy_plan p ON p.template_id = o.template_id WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
     -- FOR UPDATE OF o, s SKIP LOCKED is the database-level concurrency guard:
     -- the page-level writeInProgress flag only covers one browser tab, so two
     -- tabs/admins sweeping at once could otherwise buy the same order twice
     -- (duplicate seller payment, double bot debit). Locking the selected order
     -- rows makes concurrent sweeps skip anything already claimed, and rows
     -- deleted by a committed sweep drop out of the re-checked result.
-    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, COALESCE(i.stack_size, s.initial_stack_size, 1) AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id JOIN market_buy_plan p ON p.template_id = o.template_id LEFT JOIN dune.items i ON i.id = o.item_id WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND o.item_price <= FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL}) ORDER BY o.item_price ASC, o.id ASC LIMIT ${currentMaxBuys()} FOR UPDATE OF o, s SKIP LOCKED LOOP
+    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, COALESCE(i.stack_size, s.initial_stack_size, 1) AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id JOIN market_buy_plan p ON p.template_id = o.template_id LEFT JOIN dune.items i ON i.id = o.item_id WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${currentMaxBuys()} FOR UPDATE OF o, s SKIP LOCKED LOOP
         -- Seller "Take Solari" payment entry. item_price stays the per-unit
         -- price (the game multiplies by stack_size itself) and expiration is
         -- the never-expires sentinel so the game server's expire proc cannot
@@ -553,11 +582,12 @@ SELECT COUNT(*)::text AS eligible_orders
 FROM dune.dune_exchange_orders o
 JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id
 JOIN market_buy_plan p ON p.template_id = o.template_id
+LEFT JOIN dune.items i ON i.id = o.item_id
 LEFT JOIN bot b ON TRUE
 WHERE o.exchange_id = ${exchangeId}
   AND o.is_npc_order = FALSE
   AND (b.owner_id IS NULL OR o.owner_id <> b.owner_id)
-  AND o.item_price <= FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL});`;
+  AND ${BUYBACK_ELIGIBLE_PREDICATE};`;
   }
 
   function buildClearNpcSql() {

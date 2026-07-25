@@ -23,9 +23,9 @@ const AP_A = "101";
 const AP_B = "102";
 
 // Test seed plan at default settings (grades baked into the plan; no UI
-// expansion): TestRifle 2 + TestSchematic 2 + TestOre 2 + TestAugment 2 = 8
-// listings per seeded exchange.
-const LISTINGS_PER_SEED = 8;
+// expansion): TestRifle q0+q3 (2+2) + TestSchematic 2 + TestOre 2 +
+// TestAugment q0+q2 (2+2) = 12 listings per seeded exchange.
+const LISTINGS_PER_SEED = 12;
 
 const available = db.psqlAvailable();
 
