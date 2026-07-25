@@ -22,9 +22,10 @@ const EX_B = "9223372036854775807";
 const AP_A = "101";
 const AP_B = "102";
 
-// Test seed plan at default settings: TestRifle 2 + TestSchematic (5 grades x
-// 2) + TestOre 4 + TestAugment 1 = 17 listings per seeded exchange.
-const LISTINGS_PER_SEED = 17;
+// Test seed plan at default settings (grades baked into the plan; no UI
+// expansion): TestRifle q0+q3 (2+2) + TestSchematic 2 + TestOre 2 +
+// TestAugment q0+q2 (2+2) = 12 listings per seeded exchange.
+const LISTINGS_PER_SEED = 12;
 
 const available = db.psqlAvailable();
 
@@ -74,6 +75,15 @@ test("seeding and cleanup against PostgreSQL", { skip: !available && "psql is no
     // Backing items land in exchange A's inventory with matching sell orders.
     assert.equal(db.queryOne(DB_NAME, `SELECT COUNT(*) FROM dune.items WHERE inventory_id = ${EX_A}`), String(LISTINGS_PER_SEED));
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_sell_orders"), String(LISTINGS_PER_SEED));
+    // Absolute durability is on item stats; order wear stays normalized 1.0/1.0.
+    assert.match(
+      db.queryOne(DB_NAME, `SELECT stats FROM dune.items WHERE inventory_id = ${EX_A} AND template_id = 'TestAugment' AND quality_level = 0 LIMIT 1`),
+      /"MaxDurability":180/
+    );
+    assert.equal(
+      db.queryOne(DB_NAME, `SELECT durability_cur::text || '/' || durability_max::text FROM dune.dune_exchange_orders WHERE exchange_id = ${EX_A} LIMIT 1`),
+      "1/1"
+    );
   });
 
   await t.test("seeding a second exchange leaves the first untouched", async () => {

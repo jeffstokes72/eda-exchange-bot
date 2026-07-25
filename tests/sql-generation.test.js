@@ -61,13 +61,13 @@ test("buyback SQL: plan prices, grade normalization, and threshold rounding", as
   const sql = await harness.clickAndCaptureSql("buySweep");
   assert.ok(sql, `buyback write did not run: ${harness.statusText()}`);
 
-  // Threshold 60%: ceil(price * 60 / 100). TestAugment is bundled at grade 2
-  // with a grade-adjusted price (12500 = 10000 * 1.25) and must be normalized
-  // back to its grade-0 price before the threshold applies.
-  assert.ok(sql.includes("('TestRifle',3000)"), "TestRifle: 5000 * 60% = 3000");
-  assert.ok(sql.includes("('TestSchematic',6000)"), "TestSchematic: 10000 * 60% = 6000");
+  // Threshold 60%: ceil(price * 60 / 100). Caps come from the seeded base grade
+  // (q0, else schematic q1) — not by dividing rounded higher-grade prices.
+  assert.ok(sql.includes("('TestRifle',3000)"), "TestRifle: q0 5000 * 60% = 3000 (ignores q3 8000/1.5 inflate)");
+  assert.ok(sql.includes("('TestSchematic',6000)"), "TestSchematic: q1 10000 * 60% = 6000");
   assert.ok(sql.includes("('TestOre',300)"), "TestOre: 500 * 60% = 300");
-  assert.ok(sql.includes("('TestAugment',6000)"), "TestAugment: normalized 10000 * 60% = 6000");
+  assert.ok(sql.includes("('TestAugment',6000)"), "TestAugment: q0 10000 * 60% = 6000");
+  assert.ok(!sql.includes("('TestRifle',3200)"), "must not use inflated q3-recovered base");
 });
 
 test("buyback SQL: payment records are per-unit, never-expiring, seller-owned", async () => {
@@ -85,6 +85,9 @@ test("buyback SQL: payment records are per-unit, never-expiring, seller-owned", 
   assert.match(sql, /INSERT INTO dune\.dune_exchange_fulfilled_orders \(order_id, source_order_id, completion_type, stack_size, original_order_id\)/);
   // Sweep only touches the selected exchange and player orders.
   assert.ok(sql.includes(`o.exchange_id = ${EXCHANGE_ID} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id`));
+  // Reject non-positive prices/stacks so a crafted negative listing cannot
+  // credit the bot; grade multiplier still applied to the plan cap in SQL.
+  assert.match(sql, /o\.item_price > 0 AND COALESCE\(i\.stack_size, s\.initial_stack_size, 1\) > 0 AND o\.item_price <= FLOOR\(p\.max_unit_price \*/);
   // Max buys limit applies, and selected orders are locked so concurrent
   // sweeps (other tabs/admins) skip them instead of buying them twice.
   assert.match(sql, /LIMIT 500 FOR UPDATE OF o, s SKIP LOCKED LOOP/);

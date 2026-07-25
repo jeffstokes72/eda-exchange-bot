@@ -16,14 +16,18 @@ them.
 
 ## Features
 
-- **Market seeding**: seeds NPC sell listings for equipment, schematics,
-  materials, ammunition, consumables, utility items, and cartography from a
-  bundled Easy Dune Admin seed plan, with a configurable price multiplier.
-- **Schematics at grades 1-5**: every schematic is listed at quality grades
-  1 through 5 (2 listings per grade by default, configurable), priced with
-  EDA's grade multipliers (`1.0, 1.0, 1.25, 1.5, 1.75, 2.0`).
-- **More materials**: each material gets 4 listings by default (configurable)
-  instead of a single stack.
+- **Market seeding**: seeds NPC sell listings for equipment (including
+  stillsuits and augments), schematics, vehicle components, materials,
+  ammunition, consumables, utility items, fuel, and cartography from a
+  bundled plan generated from Easy Dune Admin's `item-data.json`, with a
+  configurable price multiplier.
+- **Grades baked into the seed**: schematics ship at quality grades 1–5 (2
+  listings each); T6 gradeable armor/weapons/stillsuits/augments ship stock
+  (q0) plus ranks 1–5. Vehicle components and commodities are unranked.
+  Durability **100–200** by tier/grade is written into item `stats`
+  (`FItemStackAndDurabilityStats`); exchange order wear stays `1.0/1.0`.
+- **Commodities at max stack**: materials use catalog `stack_max` (2 listings
+  each). Regenerate with `python3 scripts/generate-seed-plan.py`.
 - **Buyback sweeps**: buys eligible player sell listings at or below a
   configurable percentage of the seeded price, grade-aware using the same
   grade multipliers. Seller payment entries use EDA's fixes: per-unit
@@ -59,11 +63,13 @@ them.
 ```text
 addon.json                 Addon identity, version, entry path, and permissions.
 CHANGELOG.md               Release history and reasoning behind changes.
+data/item-data.json        Vendored Easy Dune Admin item catalog (seed source).
 web/index.html             Addon HTML entry point.
 web/addon.js               Addon behavior (preview, seed, buyback, scheduler).
 web/addon.css              Addon styling.
 web/dune-addon-bridge.js   Helper for calling console APIs.
-web/market-seed-plan.json  Bundled Easy Dune Admin market seed plan.
+web/market-seed-plan.json  Bundled market seed plan (grades + durability baked in).
+scripts/generate-seed-plan.py  Regenerates the seed plan from data/item-data.json.
 scripts/validate.js        Manifest validation.
 scripts/package.sh         Local packaging.
 tests/                     Behavioral tests (jsdom UI harness + PostgreSQL).
@@ -85,7 +91,7 @@ by installing; server owners approve them from RedBlink Console.
 
 **Compatibility**: console builds without addon scheduler support
 ([Red-Blink/dune-awakening-selfhost-docker#103](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/103))
-reject manifests that request unknown permissions, so addon 0.10.x only
+reject manifests that request unknown permissions, so addon 0.10.x+ only
 installs on scheduler-capable consoles. Use addon 0.9.x on older consoles;
 its in-page auto buyback still works there.
 
