@@ -35,7 +35,7 @@ CREATE TABLE dune.items (
     position_index BIGINT NOT NULL,
     template_id TEXT NOT NULL,
     quality_level BIGINT NOT NULL DEFAULT 0,
-    stats TEXT NOT NULL DEFAULT '{}'
+    stats JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE dune.dune_exchange_orders (

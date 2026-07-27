@@ -4,6 +4,16 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.11.1 - 2026-07-27
+
+### Fixed
+
+- **Seed SQL casts item stats to `jsonb`**: `dune.items.stats` is `jsonb` in
+  the live game DB. 0.11.0 inserted plan `item_stats` as plain `text`, which
+  failed with `column "stats" is of type jsonb but expression is of type text`.
+  The insert now uses `rec.item_stats::jsonb`. The test schema matches
+  production (`JSONB`) so this cannot regress silently.
+
 ## 0.11.0 - 2026-07-25
 
 Full market seed overhaul from Easy Dune Admin's authoritative
