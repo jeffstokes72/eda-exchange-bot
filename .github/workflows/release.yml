@@ -52,6 +52,8 @@ jobs:
               "$PACKAGE_PATH" \
               "$CHECKSUM_PATH" \
               --clobber
+            # Deleting a tag turns its release into a draft; republish it.
+            gh release edit "$GITHUB_REF_NAME" --draft=false
           else
             gh release create "$GITHUB_REF_NAME" \
               "$PACKAGE_PATH" \
