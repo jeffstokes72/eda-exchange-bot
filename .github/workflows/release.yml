@@ -45,8 +45,17 @@ jobs:
           PACKAGE_PATH="$(find dist -maxdepth 1 -type f -name '*.zip' | sort | head -n 1)"
           CHECKSUM_PATH="${PACKAGE_PATH}.sha256"
 
-          gh release create "$GITHUB_REF_NAME" \
-            "$PACKAGE_PATH" \
-            "$CHECKSUM_PATH" \
-            --title "$ADDON_NAME v$ADDON_VERSION" \
-            --notes "Addon package and SHA-256 checksum for $ADDON_NAME v$ADDON_VERSION."
+          # If the release already exists (a re-pushed tag), replace its assets
+          # instead of failing on create.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              "$PACKAGE_PATH" \
+              "$CHECKSUM_PATH" \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "$PACKAGE_PATH" \
+              "$CHECKSUM_PATH" \
+              --title "$ADDON_NAME v$ADDON_VERSION" \
+              --notes "Addon package and SHA-256 checksum for $ADDON_NAME v$ADDON_VERSION."
+          fi
