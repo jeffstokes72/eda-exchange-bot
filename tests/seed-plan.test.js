@@ -74,6 +74,7 @@ test("seed SQL writes absolute durability into item stats and order wear at 1.0"
   assert.match(sql, /FItemStackAndDurabilityStats/);
   assert.match(sql, /"MaxDurability":100/);
   assert.match(sql, /rec\.template_id, 1\.0, 1\.0, rec\.category_mask/);
-  assert.match(sql, /rec\.quality_level, rec\.item_stats\)/);
+  assert.match(sql, /rec\.quality_level, rec\.item_stats::jsonb\)/);
   assert.doesNotMatch(sql, /rec\.durability_cur, rec\.durability_max/);
+  assert.doesNotMatch(sql, /rec\.quality_level, rec\.item_stats\) RETURNING/);
 });
