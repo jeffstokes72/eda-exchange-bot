@@ -18,12 +18,15 @@ const TEST_SEED_PLAN = {
   price_multiplier: 5,
   market_bot_class: "Revy",
   rows: [
-    { template_id: "TestRifle", display_name: "Test Rifle", kind: "equippable", stack_size: 1, price: 5000, category_mask: 16777216, category_depth: 1, quality_level: 0, listings: 2 },
-    { template_id: "TestSchematic", display_name: "Test Schematic", kind: "schematic", stack_size: 1, price: 10000, category_mask: 16975104, category_depth: 3, quality_level: 0, listings: 2 },
-    { template_id: "TestOre", display_name: "Test Ore", kind: "resource", stack_size: 100, price: 500, category_mask: 84017152, category_depth: 2, quality_level: 0, listings: 1 },
-    // Grade-2 row with an already grade-adjusted price (10000 * 1.25), like
-    // the bundled T6 augment rows; the buyback plan must normalize it back.
-    { template_id: "TestAugment", display_name: "Test Augment", kind: "equippable", stack_size: 1, price: 12500, category_mask: 33554432, category_depth: 3, quality_level: 2, listings: 1 }
+    { template_id: "TestRifle", display_name: "Test Rifle", kind: "equippable", stack_size: 1, price: 5000, category_mask: 16777216, category_depth: 1, quality_level: 0, listings: 2, durability_cur: 100, durability_max: 100 },
+    // Graded companion of TestRifle: 8000 / 1.5 would recover 5333 and inflate
+    // the buyback base if caps were derived by dividing rounded higher grades.
+    { template_id: "TestRifle", display_name: "Test Rifle", kind: "equippable", stack_size: 1, price: 8000, category_mask: 16777216, category_depth: 1, quality_level: 3, listings: 2, durability_cur: 112, durability_max: 112 },
+    { template_id: "TestSchematic", display_name: "Test Schematic", kind: "schematic", stack_size: 1, price: 10000, category_mask: 16975104, category_depth: 3, quality_level: 1, listings: 2, durability_cur: 104, durability_max: 104 },
+    { template_id: "TestOre", display_name: "Test Ore", kind: "resource", stack_size: 100, price: 500, category_mask: 84017152, category_depth: 2, quality_level: 0, listings: 2, durability_cur: 100, durability_max: 100 },
+    // Grade-0 base plus a grade-adjusted row (10000 * 1.25); buyback must use q0.
+    { template_id: "TestAugment", display_name: "Test Augment", kind: "equippable", stack_size: 1, price: 10000, category_mask: 33554432, category_depth: 3, quality_level: 0, listings: 2, durability_cur: 180, durability_max: 180 },
+    { template_id: "TestAugment", display_name: "Test Augment", kind: "equippable", stack_size: 1, price: 12500, category_mask: 33554432, category_depth: 3, quality_level: 2, listings: 2, durability_cur: 188, durability_max: 188 }
   ],
   unsafe_template_ids: ["UnsafeThing"]
 };

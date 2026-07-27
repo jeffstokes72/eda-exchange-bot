@@ -1,15 +1,13 @@
 {
-  "schemaVersion": 1,
   "id": "eda-exchange-bot",
   "name": "EDA Exchange Bot",
   "description": "Easy Dune Admin exchange seeder controls for RedBlink Dune Docker Console.",
   "author": "n00bGames, jeffstokes72",
   "version": "0.11.1",
   "type": "ui",
-  "entry": {
-    "navigation": "EDA Exchange Bot",
-    "path": "web/index.html"
-  },
+  "sourceUrl": "https://github.com/jeffstokes72/eda-exchange-bot",
+  "downloadUrl": "https://github.com/jeffstokes72/eda-exchange-bot/releases/download/v0.11.1/eda-exchange-bot-0.11.1.zip",
+  "sha256": "0cfa7af48563fd6858794935ccbca74d42e99bdb551d53966f1e5b1d5528e919",
   "permissions": {
     "database": [
       "read",

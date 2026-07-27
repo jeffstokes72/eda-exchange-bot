@@ -14,9 +14,6 @@
   const exchangeIdEl = document.getElementById("exchangeId");
   const manualExchangeIdEl = document.getElementById("manualExchangeId");
   const clearExistingEl = document.getElementById("clearExisting");
-  const schematicGradesEl = document.getElementById("schematicGrades");
-  const schematicPerGradeEl = document.getElementById("schematicPerGrade");
-  const materialListingsEl = document.getElementById("materialListings");
   const autoBuybackEl = document.getElementById("autoBuyback");
   const autoBuybackIntervalEl = document.getElementById("autoBuybackInterval");
   const serverScheduleSectionEl = document.getElementById("serverScheduleSection");
@@ -95,15 +92,9 @@
     else if (number >= 1000) step = 10;
     return Math.max(1, Math.round(number / step) * step);
   }
-  function gradedPrice(basePrice, grade) {
-    const mult = GRADE_MULTIPLIERS[clampInteger(grade, 0, 0, 5)] || 1.0;
-    return roundPrice(basePrice * mult);
-  }
   function currentMultiplier() { return clampInteger(multiplierEl.value, payload?.price_multiplier || 5, 1, 100); }
   function currentThreshold() { return clampInteger(thresholdEl.value, 60, 1, 100); }
   function currentMaxBuys() { return clampInteger(maxBuysEl.value, 500, 1, 5000); }
-  function currentSchematicPerGrade() { return clampInteger(schematicPerGradeEl.value, 2, 1, 20); }
-  function currentMaterialListings() { return clampInteger(materialListingsEl.value, 4, 1, 50); }
   function currentAutoIntervalMinutes() { return clampInteger(autoBuybackIntervalEl.value, 30, 10, 1440); }
 
   function currentExchangeIdValue() {
@@ -124,9 +115,6 @@
         buybackPercent: thresholdEl.value,
         maxBuys: maxBuysEl.value,
         clearExisting: clearExistingEl.checked,
-        schematicGrades: schematicGradesEl.checked,
-        schematicPerGrade: schematicPerGradeEl.value,
-        materialListings: materialListingsEl.value,
         autoBuyback: autoBuybackEl.checked,
         autoBuybackInterval: autoBuybackIntervalEl.value
       }));
@@ -140,9 +128,6 @@
     if (saved.buybackPercent != null) thresholdEl.value = String(saved.buybackPercent);
     if (saved.maxBuys != null) maxBuysEl.value = String(saved.maxBuys);
     if (typeof saved.clearExisting === "boolean") clearExistingEl.checked = saved.clearExisting;
-    if (typeof saved.schematicGrades === "boolean") schematicGradesEl.checked = saved.schematicGrades;
-    if (saved.schematicPerGrade != null) schematicPerGradeEl.value = String(saved.schematicPerGrade);
-    if (saved.materialListings != null) materialListingsEl.value = String(saved.materialListings);
     if (typeof saved.autoBuyback === "boolean") autoBuybackEl.checked = saved.autoBuyback;
     if (saved.autoBuybackInterval != null) autoBuybackIntervalEl.value = String(saved.autoBuybackInterval);
   }
@@ -182,39 +167,15 @@
     return roundPrice((Number(row.price) / sourceMultiplier) * currentMultiplier());
   }
 
-  // Base rows: bundled plan rows re-priced to the current multiplier, before
-  // schematic-grade expansion and material scaling.
+  // Bundled plan rows re-priced to the current multiplier. Schematic grades,
+  // T6 ranks, listing counts, and durability are already baked into the plan.
   function baseRowsForCurrentMultiplier() {
     if (!payload) return [];
     return (payload.rows || []).map((row) => ({ ...row, price: priceForRow(row) }));
   }
 
-  // Expanded rows: what actually gets previewed and seeded.
-  // - Schematics fan out to quality grades 1-5 (configurable listings per
-  //   grade, default 2 each) with grade-multiplied prices, replacing the
-  //   bundled grade-0 schematic row.
-  // - Materials (resource rows) get a configurable listing count each
-  //   (default 4) instead of the bundled single listing.
   function rowsForCurrentMultiplier() {
-    const base = baseRowsForCurrentMultiplier();
-    const perGrade = currentSchematicPerGrade();
-    const materialEach = currentMaterialListings();
-    const expandGrades = schematicGradesEl.checked;
-    const out = [];
-    for (const row of base) {
-      if (row.kind === "schematic" && expandGrades) {
-        for (let grade = 1; grade <= 5; grade++) {
-          out.push({ ...row, quality_level: grade, price: gradedPrice(row.price, grade), listings: perGrade });
-        }
-        continue;
-      }
-      if (row.kind === "resource") {
-        out.push({ ...row, listings: Math.max(Number(row.listings || 1), materialEach) });
-        continue;
-      }
-      out.push(row);
-    }
-    return out;
+    return baseRowsForCurrentMultiplier();
   }
 
   function renderSummary(rows = rowsForCurrentMultiplier()) {
@@ -260,7 +221,7 @@
     const rows = visibleRows();
     if (!rows.length) { tableEl.innerHTML = "<p>No seed rows match the current filter.</p>"; return; }
     const shown = rows.slice(0, 250);
-    tableEl.innerHTML = `<table><thead><tr><th>Name</th><th>Template</th><th>Kind</th><th>Grade</th><th>Listings</th><th>Stack</th><th>Price</th><th>Mask</th><th>Depth</th></tr></thead><tbody>${shown.map(row => `<tr><td>${escapeHtml(row.display_name)}</td><td>${escapeHtml(row.template_id)}</td><td>${escapeHtml(row.kind)}</td><td>${escapeHtml(formatNumber(row.quality_level || 0))}</td><td>${escapeHtml(formatNumber(row.listings))}</td><td>${escapeHtml(formatNumber(row.stack_size))}</td><td>${escapeHtml(formatNumber(row.price))}</td><td>${escapeHtml(row.category_mask)}</td><td>${escapeHtml(row.category_depth)}</td></tr>`).join("")}</tbody></table>`;
+    tableEl.innerHTML = `<table><thead><tr><th>Name</th><th>Template</th><th>Kind</th><th>Grade</th><th>Dur</th><th>Listings</th><th>Stack</th><th>Price</th><th>Mask</th><th>Depth</th></tr></thead><tbody>${shown.map(row => `<tr><td>${escapeHtml(row.display_name)}</td><td>${escapeHtml(row.template_id)}</td><td>${escapeHtml(row.kind)}</td><td>${escapeHtml(formatNumber(row.quality_level || 0))}</td><td>${escapeHtml(formatNumber(row.durability_max ?? 100))}</td><td>${escapeHtml(formatNumber(row.listings))}</td><td>${escapeHtml(formatNumber(row.stack_size))}</td><td>${escapeHtml(formatNumber(row.price))}</td><td>${escapeHtml(row.category_mask)}</td><td>${escapeHtml(row.category_depth)}</td></tr>`).join("")}</tbody></table>`;
     if (rows.length > shown.length) tableEl.insertAdjacentHTML("beforeend", `<p>Showing first ${shown.length.toLocaleString()} of ${rows.length.toLocaleString()} matching unique rows. Narrow the filter for more detail.</p>`);
   }
 
@@ -400,8 +361,39 @@ ORDER BY is_global ASC, k.exchange_id ASC;`
     statusEl.textContent = `Preview ready from EDA ${payload.panel_version}; ${renderedRows.length.toLocaleString()} unique rows at ${currentMultiplier()}x.`;
   }
 
+  function clampDurability(value, fallback = 100) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.max(100, Math.min(200, number));
+  }
+
+  // Absolute durability lives on dune.items.stats (FItemStackAndDurabilityStats),
+  // matching RedBlink/EDA item grants. Exchange order durability_* stays at the
+  // normalized wear fraction 1.0/1.0 (full condition).
+  function itemStatsJson(row) {
+    const durMax = clampDurability(row.durability_max ?? row.durability_cur ?? 100);
+    const durCur = Math.min(clampDurability(row.durability_cur ?? durMax, durMax), durMax);
+    return JSON.stringify({
+      FItemStackAndDurabilityStats: [[], {
+        CurrentDurability: durCur,
+        MaxDurability: durMax,
+        DecayedMaxDurability: durMax
+      }]
+    });
+  }
+
   function valuesForSeedRows(rows) {
-    return rows.map(row => `(${[sqlLiteral(row.template_id), Number(row.stack_size), Number(row.price), Number(row.category_mask), Number(row.category_depth), Number(row.quality_level || 0), sqlLiteral(row.kind), Number(row.listings || 1)].join(",")})`).join(",\n");
+    return rows.map((row) => `(${[
+      sqlLiteral(row.template_id),
+      Number(row.stack_size),
+      Number(row.price),
+      Number(row.category_mask),
+      Number(row.category_depth),
+      Number(row.quality_level || 0),
+      sqlLiteral(row.kind),
+      Number(row.listings || 1),
+      sqlLiteral(itemStatsJson(row))
+    ].join(",")})`).join(",\n");
   }
 
   function buildSeedSql() {
@@ -430,9 +422,9 @@ BEGIN
     END IF;
 END $$;` : "";
     return `BEGIN;
-CREATE TEMP TABLE market_seed_plan (template_id TEXT NOT NULL, stack_size BIGINT NOT NULL, item_price BIGINT NOT NULL, category_mask INTEGER NOT NULL, category_depth SMALLINT NOT NULL, quality_level BIGINT NOT NULL, seed_kind TEXT NOT NULL, listing_count INTEGER NOT NULL) ON COMMIT DROP;
+CREATE TEMP TABLE market_seed_plan (template_id TEXT NOT NULL, stack_size BIGINT NOT NULL, item_price BIGINT NOT NULL, category_mask INTEGER NOT NULL, category_depth SMALLINT NOT NULL, quality_level BIGINT NOT NULL, seed_kind TEXT NOT NULL, listing_count INTEGER NOT NULL, item_stats TEXT NOT NULL) ON COMMIT DROP;
 CREATE TEMP TABLE market_seed_result (status TEXT NOT NULL, exchange_id BIGINT NOT NULL, access_point_id BIGINT NOT NULL, owner_id BIGINT NOT NULL, inventory_id BIGINT NOT NULL) ON COMMIT DROP;
-INSERT INTO market_seed_plan (template_id, stack_size, item_price, category_mask, category_depth, quality_level, seed_kind, listing_count) VALUES
+INSERT INTO market_seed_plan (template_id, stack_size, item_price, category_mask, category_depth, quality_level, seed_kind, listing_count, item_stats) VALUES
 ${valuesSql};
 ${clearSql}
 DO $$
@@ -472,7 +464,7 @@ BEGIN
     FROM dune.dune_exchange_orders WHERE expiration_time < ${PAYMENT_SENTINEL_EXPIRY};
     FOR rec IN SELECT * FROM market_seed_plan ORDER BY seed_kind, template_id, quality_level LOOP
         FOR idx IN 1..GREATEST(1, rec.listing_count) LOOP
-            INSERT INTO dune.items (inventory_id, stack_size, position_index, template_id, quality_level, stats) VALUES (v_inventory_id, rec.stack_size, v_next_position, rec.template_id, rec.quality_level, '{}') RETURNING id INTO v_item_id;
+            INSERT INTO dune.items (inventory_id, stack_size, position_index, template_id, quality_level, stats) VALUES (v_inventory_id, rec.stack_size, v_next_position, rec.template_id, rec.quality_level, rec.item_stats::jsonb) RETURNING id INTO v_item_id;
             v_next_position := v_next_position + 1;
             INSERT INTO dune.dune_exchange_orders (exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, durability_cur, durability_max, category_mask, category_depth, item_price, quality_level, item_id) VALUES (v_exchange_id, v_access_point_id, v_owner_id, TRUE, v_expiration_time, rec.template_id, 1.0, 1.0, rec.category_mask, rec.category_depth, rec.item_price, rec.quality_level, v_item_id) RETURNING id INTO v_order_id;
             INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (v_order_id, rec.stack_size, rec.item_price);
@@ -484,22 +476,51 @@ SELECT r.status, r.exchange_id, r.access_point_id, r.owner_id, r.inventory_id, S
 COMMIT;`;
   }
 
-  // Buyback plan: per-template base (grade 0) max unit price scaled by the
-  // buyback threshold percent. Grade-adjusted reference prices are computed in
-  // SQL from the player order's quality_level using the same grade multipliers
-  // the seeder uses, matching EDA's grade-aware buy tick.
+  // Buyback eligibility shared by the write sweep, diagnostics, and the
+  // read-only probe: never buy non-positive prices or empty stacks (a negative
+  // player listing would otherwise match <= cap and credit the bot), and apply
+  // the grade multiplier to the plan's grade-0/1 base cap in SQL.
+  const BUYBACK_ELIGIBLE_PREDICATE = `o.item_price > 0 AND COALESCE(i.stack_size, s.initial_stack_size, 1) > 0 AND o.item_price <= FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL})`;
+
+  // Buyback plan: per-template base (grade 0, else schematic grade 1) max unit
+  // price scaled by the buyback threshold percent. Grade-adjusted reference
+  // prices for player listings are computed in SQL from o.quality_level using
+  // the same grade multipliers the seeder uses. Prefer the seeded base-grade
+  // row's price so stepped round_price on higher grades cannot inflate the
+  // recovered base (dividing a rounded q3/q5 price overshoots by up to ~7%).
+  function buybackBasePrice(templateRows) {
+    const graded = templateRows.map((row) => ({
+      row,
+      grade: clampInteger(row.quality_level, 0, 0, 5),
+      price: Math.round(Number(row.price))
+    }));
+    const base =
+      graded.find((entry) => entry.grade === 0) ||
+      graded.find((entry) => entry.grade === 1) ||
+      null;
+    if (base && Number.isFinite(base.price) && base.price > 0) return base.price;
+    // Sparse fixtures / partial plans with only higher grades: undo one mult.
+    let best = 0;
+    for (const entry of graded) {
+      const mult = GRADE_MULTIPLIERS[entry.grade] || 1.0;
+      const recovered = Math.round(entry.price / mult);
+      if (Number.isFinite(recovered)) best = Math.max(best, recovered);
+    }
+    return best;
+  }
+
   function buybackPlanValuesSql() {
     const rows = baseRowsForCurrentMultiplier();
     const threshold = currentThreshold();
-    const maxPrice = new Map();
+    const byTemplate = new Map();
     for (const row of rows) {
-      // Normalize to a grade-0 price: some bundled plan rows carry a non-zero
-      // quality_level with an already grade-adjusted price, and the SQL applies
-      // the grade multiplier itself. Without this the multiplier stacks twice.
-      const grade = clampInteger(row.quality_level, 0, 0, 5);
-      const mult = GRADE_MULTIPLIERS[grade] || 1.0;
-      const grade0Price = Math.round(Number(row.price) / mult);
-      maxPrice.set(row.template_id, Math.max(maxPrice.get(row.template_id) || 0, grade0Price));
+      const list = byTemplate.get(row.template_id) || [];
+      list.push(row);
+      byTemplate.set(row.template_id, list);
+    }
+    const maxPrice = new Map();
+    for (const [templateId, templateRows] of byTemplate) {
+      maxPrice.set(templateId, Math.max(1, buybackBasePrice(templateRows) || 0));
     }
     return Array.from(maxPrice.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([templateId, price]) => `(${sqlLiteral(templateId)},${Math.max(1, Math.floor((price * threshold + 99) / 100))})`).join(",\n");
   }
@@ -531,14 +552,14 @@ BEGIN
     IF v_balance < 1000000000000 THEN
         PERFORM dune.dune_exchange_modify_user_solari_balance(v_owner_id, 9000000000000 - v_balance);
     END IF;
-    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price <= FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL})), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL})), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN market_buy_plan p ON p.template_id = o.template_id WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
+    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND ${BUYBACK_ELIGIBLE_PREDICATE}), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > 0 AND COALESCE(i.stack_size, s.initial_stack_size, 1) > 0 AND o.item_price > FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL})), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id LEFT JOIN market_buy_plan p ON p.template_id = o.template_id WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
     -- FOR UPDATE OF o, s SKIP LOCKED is the database-level concurrency guard:
     -- the page-level writeInProgress flag only covers one browser tab, so two
     -- tabs/admins sweeping at once could otherwise buy the same order twice
     -- (duplicate seller payment, double bot debit). Locking the selected order
     -- rows makes concurrent sweeps skip anything already claimed, and rows
     -- deleted by a committed sweep drop out of the re-checked result.
-    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, COALESCE(i.stack_size, s.initial_stack_size, 1) AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id JOIN market_buy_plan p ON p.template_id = o.template_id LEFT JOIN dune.items i ON i.id = o.item_id WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND o.item_price <= FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL}) ORDER BY o.item_price ASC, o.id ASC LIMIT ${currentMaxBuys()} FOR UPDATE OF o, s SKIP LOCKED LOOP
+    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, COALESCE(i.stack_size, s.initial_stack_size, 1) AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id JOIN market_buy_plan p ON p.template_id = o.template_id LEFT JOIN dune.items i ON i.id = o.item_id WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${currentMaxBuys()} FOR UPDATE OF o, s SKIP LOCKED LOOP
         -- Seller "Take Solari" payment entry. item_price stays the per-unit
         -- price (the game multiplies by stack_size itself) and expiration is
         -- the never-expires sentinel so the game server's expire proc cannot
@@ -576,11 +597,12 @@ SELECT COUNT(*)::text AS eligible_orders
 FROM dune.dune_exchange_orders o
 JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id
 JOIN market_buy_plan p ON p.template_id = o.template_id
+LEFT JOIN dune.items i ON i.id = o.item_id
 LEFT JOIN bot b ON TRUE
 WHERE o.exchange_id = ${exchangeId}
   AND o.is_npc_order = FALSE
   AND (b.owner_id IS NULL OR o.owner_id <> b.owner_id)
-  AND o.item_price <= FLOOR(p.max_unit_price * ${GRADE_MULTIPLIER_SQL});`;
+  AND ${BUYBACK_ELIGIBLE_PREDICATE};`;
   }
 
   function buildClearNpcSql() {
@@ -992,9 +1014,7 @@ COMMIT;`;
 
   filterEl.addEventListener("input", renderRows);
   kindFilterEl.addEventListener("change", renderRows);
-  for (const el of [multiplierEl, schematicGradesEl, schematicPerGradeEl, materialListingsEl]) {
-    el.addEventListener("change", () => { persistSettings(); refreshPreview(); });
-  }
+  multiplierEl.addEventListener("change", () => { persistSettings(); refreshPreview(); });
   for (const el of [thresholdEl, maxBuysEl, clearExistingEl]) {
     el.addEventListener("change", persistSettings);
   }
