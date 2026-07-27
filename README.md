@@ -194,8 +194,8 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.11.0
-   git push origin v0.11.0
+   git tag v0.11.1
+   git push origin v0.11.1
    ```
 
 GitHub Actions validates the addon, packages it, creates the GitHub Release,

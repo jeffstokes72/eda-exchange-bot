@@ -13,6 +13,10 @@ why.
   failed with `column "stats" is of type jsonb but expression is of type text`.
   The insert now uses `rec.item_stats::jsonb`. The test schema matches
   production (`JSONB`) so this cannot regress silently.
+- **Panel reports 0.11.1**: `panel_version` in `web/market-seed-plan.json` (and
+  the generator's stamp in `scripts/generate-seed-plan.py`) still said 0.11.0,
+  so the preview status line showed the old version. Community-index files and
+  the README release example now reference v0.11.1 as well.
 
 ## 0.11.0 - 2026-07-25
 
