@@ -4,7 +4,7 @@ GitHub Actions released **v0.11.1** from this repository:
 
 - Release: https://github.com/jeffstokes72/eda-exchange-bot/releases/tag/v0.11.1
 - Package: https://github.com/jeffstokes72/eda-exchange-bot/releases/download/v0.11.1/eda-exchange-bot-0.11.1.zip
-- SHA-256: `81786bcf0faef0a9d4f7a5d4772da7ed13a8621e55f4d6dc9e594a7d7920d98f`
+- SHA-256: `0cfa7af48563fd6858794935ccbca74d42e99bdb551d53966f1e5b1d5528e919`
 
 This agent cannot open a PR against `Red-Blink/dune-docker-addons` (no write access to that repo or your fork). To publish to the console catalog:
 
