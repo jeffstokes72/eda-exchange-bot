@@ -58,6 +58,15 @@ test("seed plan bakes ranks only for T6 rankable gear and their schematics", () 
   const armorWeave = plan.rows.filter((r) => r.template_id === "T6_Augment_Armor1");
   assert.deepEqual(armorWeave.map((r) => r.quality_level).sort((a, b) => a - b), [3, 4, 5], "min_quality_level 3 augment seeds 3-5");
 
+  // Console lifts any T<n>_Augment_ item below rank 1 to rank 1
+  // (normalizeStandaloneAugmentQuality), so no augment may seed at rank 0 —
+  // including the ones the catalog does not mark gradeable.
+  const augmentRows = plan.rows.filter((r) => /^T\d+_Augment_/i.test(r.template_id));
+  assert.ok(augmentRows.length > 100, "expected augment rows");
+  assert.ok(augmentRows.every((r) => Number(r.quality_level) >= 1), "no augment may seed at rank 0");
+  const ungradedAugment = plan.rows.filter((r) => r.template_id === "T6_Augment_Damage2");
+  assert.deepEqual(ungradedAugment.map((r) => r.quality_level), [1], "a non-gradeable augment seeds one rank-1 listing");
+
   // No Tier 1-5 row should carry a quality rank.
   for (const row of plan.rows) {
     if (Number(row.quality_level || 0) === 0) continue;

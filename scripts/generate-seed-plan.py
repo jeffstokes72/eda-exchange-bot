@@ -31,6 +31,7 @@ OLD = OUT  # reuse prior unsafe list when present
 
 PRICE_MULTIPLIER = 5
 LISTINGS_PER_GRADE = 2
+AUGMENT_TEMPLATE_RE = re.compile(r"^T\d+_Augment_", re.IGNORECASE)
 GRADE_MULTIPLIERS = [1.0, 1.0, 1.25, 1.5, 1.75, 2.0]
 VENDOR_MULT = {"common": 1.0, "rare": 5.0, "unique": 5.0, "memento": 2.0}
 MIN_MEANINGFUL_VENDOR_PRICE = 10
@@ -250,18 +251,14 @@ def is_rankable_category(category: str) -> bool:
     )
 
 
-def is_rankable(category: str, is_schematic: bool, is_gradeable: bool, tier: int = 0) -> bool:
-    """Physical T6 armor/weapons/stillsuits/augments the game marks gradeable.
+def is_augment(template_id: str, category: str) -> bool:
+    """Augments, matched the way RedBlink Console matches them.
 
-    Tools, vehicles, power packs, compactors, shields, etc. never get ranks —
-    even when a schematic row exists — matching Easy Dune Admin's applicableGrades
-    (non-gradeable / stackable → quality 0 only) plus a category allow-list.
+    Console's `isStandaloneAugmentTemplate` (console/api/src/duneDb.js) accepts
+    the augment catalog plus the `T<n>_Augment_` id pattern, and its
+    `normalizeStandaloneAugmentQuality` lifts anything below rank 1 up to 1.
     """
-    if is_schematic or not is_gradeable:
-        return False
-    if int(tier or 0) < 6:
-        return False
-    return is_rankable_category(category)
+    return category.startswith("items/augment/") or bool(AUGMENT_TEMPLATE_RE.match(template_id))
 
 
 def should_exclude(tid: str, entry: dict) -> str | None:
@@ -304,7 +301,7 @@ def should_exclude(tid: str, entry: dict) -> str | None:
     return None
 
 
-def grades_for(entry: dict, category: str, is_schematic: bool) -> list[int]:
+def grades_for(template_id: str, entry: dict, category: str, is_schematic: bool) -> list[int]:
     """Quality levels to seed.
 
     Only catalog-gradeable T6 armor/weapons/stillsuits/augments (and their
@@ -313,24 +310,28 @@ def grades_for(entry: dict, category: str, is_schematic: bool) -> list[int]:
     forced through grades 1–5, which showed up in-game as Rank 1–5 on items
     that do not have ranks.
 
-    Augments have no stock/rank-0 listing: they start at rank 1 (or the
-    catalog min_quality_level when higher) through 5, matching EDA.
+    Augments have no rank 0 at all: they start at rank 1 (or the catalog
+    min_quality_level when higher) through 5. Console enforces the same floor
+    when it grants augments, so a rank-0 augment listing would be a state the
+    game itself never produces.
     """
     tier = int(entry.get("tier") or 0)
     gradeable = bool(entry.get("is_gradeable"))
     stack = max(1, int(entry.get("stack_max") or 1))
-    if stack > 1 or not gradeable or tier < 6 or not is_rankable_category(category):
-        return [0]
-
-    is_augment = category.startswith("items/augment/")
     min_q = int(entry.get("min_quality_level") or 0)
     if min_q < 0 or min_q > 5:
         min_q = 0
-    if is_schematic or is_augment:
-        # Schematics and augments: no quality 0. Augments that only drop at
-        # higher ranks respect min_quality_level (often 2–5).
+
+    if is_augment(template_id, category):
         start = max(1, min_q)
-        return list(range(start, 6))
+        # A non-gradeable augment has one real rank, not a 1-5 ladder, but it
+        # still cannot be rank 0.
+        return list(range(start, 6)) if gradeable else [start]
+
+    if stack > 1 or not gradeable or tier < 6 or not is_rankable_category(category):
+        return [0]
+    if is_schematic:
+        return list(range(max(1, min_q), 6))
     # Armor/weapons/stillsuits: stock (q0) plus ranks 1–5.
     return list(range(min_q, 6))
 
@@ -374,7 +375,7 @@ def main() -> None:
         mask, depth = mask_depth
 
         base = base_price(entry, is_schematic)
-        for grade in grades_for(entry, category, is_schematic):
+        for grade in grades_for(tid, entry, category, is_schematic):
             dur = durability_for(tier, grade)
             rows.append(
                 {

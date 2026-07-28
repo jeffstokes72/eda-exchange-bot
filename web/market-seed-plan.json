@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-28T18:42:52+00:00",
+  "generated_at": "2026-07-28T18:54:54+00:00",
   "panel_version": "0.12.0",
   "price_multiplier": 5,
   "market_bot_class": "Revy",
@@ -16471,11 +16471,11 @@
       "price": 19000000,
       "category_mask": 67239936,
       "category_depth": 2,
-      "quality_level": 0,
+      "quality_level": 1,
       "special_boost": false,
       "listings": 2,
-      "durability_cur": 180.0,
-      "durability_max": 180.0
+      "durability_cur": 184.0,
+      "durability_max": 184.0
     },
     {
       "template_id": "SmugDmr4",
