@@ -10,15 +10,18 @@ write access to it or to your fork).
 
 ## Before submitting
 
-`sha256` in `eda-exchange-bot.json` is intentionally empty: it must be the
-checksum of the exact release archive, which only exists once the tag is
-pushed. The console refuses to install a community addon whose checksum is
-missing or does not match, so fill it in first.
+`sha256` in `eda-exchange-bot.json` is the checksum of the exact release
+archive; the console refuses to install a community addon whose checksum is
+missing or does not match. It is now populated from the published `v0.12.0`
+release:
 
-1. Tag and push `v0.12.0`. The release workflow builds
-   `eda-exchange-bot-0.12.0.zip` and uploads it with a `.sha256` asset.
-2. Copy the checksum from that asset (or run
-   `sha256sum eda-exchange-bot-0.12.0.zip`) into `sha256`.
+1. Tag `v0.12.0` was pushed and the release workflow built
+   `eda-exchange-bot-0.12.0.zip` with its `.sha256` asset:
+   https://github.com/jeffstokes72/eda-exchange-bot/releases/tag/v0.12.0
+2. That checksum
+   (`a0ce08294ca37d28a78e1c518892a3590105fc4df55e6aaa6b4709bcbb80c269`) is
+   already filled into `sha256`. Re-verify with
+   `sha256sum eda-exchange-bot-0.12.0.zip` if the archive is ever rebuilt.
 
 ## Submitting
 
