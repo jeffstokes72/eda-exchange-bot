@@ -23,7 +23,8 @@ them.
   configurable price multiplier.
 - **Grades baked into the seed**: only T6 gradeable armor/weapons/stillsuits
   ship stock (q0) plus ranks 1–5; **augments ship ranks 1–5 only** (no rank 0,
-  and catalog `min_quality_level` when higher). Matching schematics ship at
+  and catalog `min_quality_level` when higher — Console itself lifts any
+  `T<n>_Augment_` item below rank 1 to rank 1). Matching schematics ship at
   grades 1–5 (2 listings each). Tools (including sand compactors), vehicles,
   and Tier 1–5 gear stay unranked. Vehicle components and commodities are
   unranked. Durability **100–200** by tier/grade is written into item `stats`
@@ -32,10 +33,13 @@ them.
   each). Regenerate with `python3 scripts/generate-seed-plan.py`.
 - **Buyback sweeps**: buys eligible player sell listings at or below a
   configurable percentage of the **seeded price at that listing's grade**
-  (not a live market average — player posts cannot lower the cap). Seller
-  payment entries use EDA's fixes: per-unit `item_price` and the
-  never-expires sentinel expiration (`999999999`) so the game server's expire
-  proc cannot purge an uncollected "Take Solari" payment.
+  (not a live market average — player posts cannot lower the cap). A listing's
+  grade is the higher of the exchange order's and the backing item's
+  `quality_level`, and listings at a grade the plan does not seed are capped by
+  the nearest seeded grade below them rather than being skipped. Whole stacks
+  are bought in one pass. Seller payment entries use EDA's fixes: per-unit
+  `item_price` and the never-expires sentinel expiration (`999999999`) so the
+  game server's expire proc cannot purge an uncollected "Take Solari" payment.
 - **Unattended buyback (server-side schedule)**: on consoles with addon
   scheduler support
   ([Red-Blink/dune-awakening-selfhost-docker#103](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/103)),
@@ -48,8 +52,13 @@ them.
   something to buy. Requires the `scheduler:server` permission to be approved.
   The addon feature-detects console support and hides the section on older
   consoles. Seed and unsafe-cleanup are not console scheduler jobs yet.
+  Because the console builds that SQL itself, server-side sweeps do not include
+  this release's per-grade caps or full-stack purchases until RedBlink updates
+  `console/api/src/addonJobs.js`; use the in-page sweep when that matters.
 - **Auto market ops (in-page)**: optional schedulers run buyback, NPC reseed,
-  and unsafe-listing cleanup on intervals while the addon page is open.
+  and unsafe-listing cleanup on intervals while the addon page is open. The
+  unattended reseed always replaces the bot's own listings for the selected
+  exchange, so repeated runs cannot stack duplicate markets.
   Buyback starts with a read-only eligibility query; the write sweep (and
   RedBlink's automatic pre-write backup) only happens when there is at least
   one eligible listing. Fallback for consoles without scheduler support, and
