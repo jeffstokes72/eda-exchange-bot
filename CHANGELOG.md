@@ -4,6 +4,33 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.12.0 - 2026-07-28
+
+### Fixed
+
+- **Buyback caps miss true 60% of seeded grade prices**: after grades were
+  baked into the seed plan, buyback still derived a single grade-0/1 base and
+  re-applied grade multipliers in SQL (`FLOOR(cap × grade_mult)`). Seeded
+  grade prices are not exactly `q0 × mult` after stepped rounding, so hundreds
+  of grade rows undershot (or overshot) **60% of the seeded market at that
+  grade**. Caps are now one row per `(template_id, quality_level)` =
+  `ceil(seeded_price × buyback%)`, joined on the listing's grade. Player
+  listings never enter the reference price (there is no live market average
+  in this addon); cheap player posts cannot dilute the buyback threshold.
+- **Server-side console note**: RedBlink's `addonJobs.js` still builds the
+  older template-only buyback SQL. In-page / manual sweeps use the fixed math
+  immediately; unattended server sweeps need a matching console update.
+
+### Added
+
+- **In-page auto seed and auto unsafe cleanup**: optional schedulers (default
+  every 360 minutes) that reseed the NPC market and drop unsafe NPC listings
+  while the addon page stays open, alongside auto buyback. Jobs share a
+  single write lock; cleanup runs before seed before buyback when multiple
+  are due. Settings persist in `localStorage`.
+- Server schedule panel copy clarifies that seed/cleanup are not yet console
+  scheduler jobs — use the in-page toggles for those.
+
 ## 0.11.1 - 2026-07-27
 
 ### Fixed

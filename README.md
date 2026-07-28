@@ -29,10 +29,11 @@ them.
 - **Commodities at max stack**: materials use catalog `stack_max` (2 listings
   each). Regenerate with `python3 scripts/generate-seed-plan.py`.
 - **Buyback sweeps**: buys eligible player sell listings at or below a
-  configurable percentage of the seeded price, grade-aware using the same
-  grade multipliers. Seller payment entries use EDA's fixes: per-unit
-  `item_price` and the never-expires sentinel expiration (`999999999`) so the
-  game server's expire proc cannot purge an uncollected "Take Solari" payment.
+  configurable percentage of the **seeded price at that listing's grade**
+  (not a live market average — player posts cannot lower the cap). Seller
+  payment entries use EDA's fixes: per-unit `item_price` and the
+  never-expires sentinel expiration (`999999999`) so the game server's expire
+  proc cannot purge an uncollected "Take Solari" payment.
 - **Unattended buyback (server-side schedule)**: on consoles with addon
   scheduler support
   ([Red-Blink/dune-awakening-selfhost-docker#103](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/103)),
@@ -44,15 +45,15 @@ them.
   a read-only query first and takes a pre-write backup only when there is
   something to buy. Requires the `scheduler:server` permission to be approved.
   The addon feature-detects console support and hides the section on older
-  consoles.
-- **Auto buyback (in-page)**: optional scheduler that runs the buyback sweep
-  on an interval (default 30 minutes, minimum 10) while the addon page is
-  open. Every run starts with a read-only eligibility query; the write sweep
-  (and RedBlink's automatic pre-write backup) only happens when there is at
-  least one eligible listing, so idle ticks are cheap on self-hosted servers.
-  Kept as the fallback automation for consoles without scheduler support;
-  while the server-side schedule is enabled, the in-page toggle is turned off
-  to avoid redundant sweeps (and their backups).
+  consoles. Seed and unsafe-cleanup are not console scheduler jobs yet.
+- **Auto market ops (in-page)**: optional schedulers run buyback, NPC reseed,
+  and unsafe-listing cleanup on intervals while the addon page is open.
+  Buyback starts with a read-only eligibility query; the write sweep (and
+  RedBlink's automatic pre-write backup) only happens when there is at least
+  one eligible listing. Fallback for consoles without scheduler support, and
+  the only hands-off path for seed/cleanup until the console adds those jobs;
+  while the server-side buyback schedule is enabled, the in-page buyback
+  toggle is turned off to avoid redundant sweeps (seed/cleanup stay available).
 - **Exchange detection**: resolves access points from
   `dune_exchange_accesspoints` first (the exchange players actually reach
   in-game) and refuses to fabricate one, matching EDA's exchange/access-point
@@ -194,8 +195,8 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.11.1
-   git push origin v0.11.1
+   git tag v0.12.0
+   git push origin v0.12.0
    ```
 
 GitHub Actions validates the addon, packages it, creates the GitHub Release,

@@ -400,7 +400,7 @@ def main() -> None:
 
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
-        "panel_version": "0.11.1",
+        "panel_version": "0.12.0",
         "price_multiplier": PRICE_MULTIPLIER,
         "market_bot_class": "Revy",
         "summary": summary,
