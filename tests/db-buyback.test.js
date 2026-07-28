@@ -153,6 +153,31 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     );
   });
 
+  await t.test("manual sweep buys the full resource stack, even when items.stack_size is stale at 1", async () => {
+    // Player resource listings can leave items.stack_size = 1 while
+    // sell_orders.initial_stack_size holds the real quantity. COALESCE alone
+    // would pay for 1 unit and delete the rest unpaid.
+    db.execSql(DB_NAME, `
+      INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id, quality_level) VALUES
+        (800020, ${EX_A}, 1, 9020, 'TestOre', 0);
+      INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, quality_level, item_id)
+      VALUES (700020, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestOre', 200, 0, 800020);
+      INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (700020, 500, 200);`);
+    const balanceBefore = db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`);
+    const sql = await harness.clickAndCaptureSql("buySweep");
+    assert.ok(sql, `buyback write did not run: ${harness.statusText()}`);
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700020"), "0");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.items WHERE id = 800020"), "0");
+    assert.equal(
+      db.queryOne(DB_NAME, "SELECT f.stack_size::text FROM dune.dune_exchange_fulfilled_orders f WHERE f.original_order_id = 700020"),
+      "500"
+    );
+    assert.equal(
+      db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`),
+      String(Number(balanceBefore) - 200 * 500)
+    );
+  });
+
   await t.test("automatic sweep buys a newly eligible order end-to-end", async () => {
     db.execSql(DB_NAME, `
       INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id) VALUES (800006, ${EX_A}, 50, 9006, 'TestOre');

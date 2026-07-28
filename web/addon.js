@@ -493,12 +493,19 @@ COMMIT;`;
   // caps come only from the seeded plan row at this grade.
   const BUYBACK_ORDER_GRADE_SQL = "LEAST(GREATEST(COALESCE(o.quality_level, i.quality_level, 0), 0), 5)";
 
+  // Full stack quantity for a sell listing. Player resource listings sometimes
+  // keep the real quantity on sell_orders.initial_stack_size while
+  // items.stack_size stays 1; COALESCE alone would then pay for one unit and
+  // delete the rest unpaid. We always remove the whole listing, so take the
+  // larger of the two positive counts.
+  const BUYBACK_STACK_SQL = "GREATEST(COALESCE(i.stack_size, 0), COALESCE(s.initial_stack_size, 0))";
+
   // Buyback eligibility shared by the write sweep, diagnostics, and the
   // read-only probe: never buy non-positive prices or empty stacks (a negative
   // player listing would otherwise match <= cap and credit the bot). Cap is
   // already threshold% of the seeded price at this exact grade, so no further
   // grade multiplier is applied in SQL.
-  const BUYBACK_ELIGIBLE_PREDICATE = `o.item_price > 0 AND COALESCE(i.stack_size, s.initial_stack_size, 1) > 0 AND o.item_price <= p.max_unit_price`;
+  const BUYBACK_ELIGIBLE_PREDICATE = `o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price <= p.max_unit_price`;
   const BUYBACK_PLAN_JOIN = `JOIN market_buy_plan p ON p.template_id = o.template_id AND p.quality_level = ${BUYBACK_ORDER_GRADE_SQL}`;
   const BUYBACK_PLAN_LEFT_JOIN = `LEFT JOIN market_buy_plan p ON p.template_id = o.template_id AND p.quality_level = ${BUYBACK_ORDER_GRADE_SQL}`;
 
@@ -560,18 +567,21 @@ BEGIN
     IF v_balance < 1000000000000 THEN
         PERFORM dune.dune_exchange_modify_user_solari_balance(v_owner_id, 9000000000000 - v_balance);
     END IF;
-    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND ${BUYBACK_ELIGIBLE_PREDICATE}), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > 0 AND COALESCE(i.stack_size, s.initial_stack_size, 1) > 0 AND o.item_price > p.max_unit_price), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LEFT_JOIN} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
+    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND ${BUYBACK_ELIGIBLE_PREDICATE}), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price > p.max_unit_price), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LEFT_JOIN} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
     -- FOR UPDATE OF o, s SKIP LOCKED is the database-level concurrency guard:
     -- the page-level writeInProgress flag only covers one browser tab, so two
     -- tabs/admins sweeping at once could otherwise buy the same order twice
     -- (duplicate seller payment, double bot debit). Locking the selected order
     -- rows makes concurrent sweeps skip anything already claimed, and rows
     -- deleted by a committed sweep drop out of the re-checked result.
-    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, COALESCE(i.stack_size, s.initial_stack_size, 1) AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_JOIN} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${currentMaxBuys()} FOR UPDATE OF o, s SKIP LOCKED LOOP
+    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, ${BUYBACK_STACK_SQL} AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_JOIN} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${currentMaxBuys()} FOR UPDATE OF o, s SKIP LOCKED LOOP
         -- Seller "Take Solari" payment entry. item_price stays the per-unit
         -- price (the game multiplies by stack_size itself) and expiration is
         -- the never-expires sentinel so the game server's expire proc cannot
         -- purge an uncollected payment (EDA "items eaten without payment" fix).
+        -- actual_stack is the full listed quantity (see BUYBACK_STACK_SQL), so
+        -- a 500-unit resource listing is bought and paid in one sweep — never
+        -- a single unit from the stack.
         INSERT INTO dune.dune_exchange_orders (exchange_id, access_point_id, owner_id, template_id, expiration_time, durability_cur, durability_max, item_price, category_mask, category_depth, is_npc_order) VALUES (rec.exchange_id, rec.access_point_id, rec.seller_actor_id, rec.template_id, ${PAYMENT_SENTINEL_EXPIRY}, 1.0, 1.0, rec.item_price, 0, 0, FALSE) RETURNING id INTO v_log_order_id;
         INSERT INTO dune.dune_exchange_fulfilled_orders (order_id, source_order_id, completion_type, stack_size, original_order_id) VALUES (v_log_order_id, NULL, 4, rec.actual_stack, rec.order_id);
         UPDATE dune.dune_exchange_users SET solari_balance = solari_balance - (rec.item_price * rec.actual_stack) WHERE owner_id = v_owner_id;

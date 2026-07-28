@@ -90,8 +90,10 @@ test("buyback SQL: payment records are per-unit, never-expiring, seller-owned", 
   // Sweep only touches the selected exchange and player orders.
   assert.ok(sql.includes(`o.exchange_id = ${EXCHANGE_ID} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id`));
   // Reject non-positive prices/stacks; cap is already grade-specific so the
-  // predicate compares item_price to max_unit_price directly.
-  assert.match(sql, /o\.item_price > 0 AND COALESCE\(i\.stack_size, s\.initial_stack_size, 1\) > 0 AND o\.item_price <= p\.max_unit_price/);
+  // predicate compares item_price to max_unit_price directly. Stack quantity
+  // takes GREATEST(item, sell_order) so a resource listing is bought in full.
+  assert.match(sql, /o\.item_price > 0 AND GREATEST\(COALESCE\(i\.stack_size, 0\), COALESCE\(s\.initial_stack_size, 0\)\) > 0 AND o\.item_price <= p\.max_unit_price/);
+  assert.match(sql, /GREATEST\(COALESCE\(i\.stack_size, 0\), COALESCE\(s\.initial_stack_size, 0\)\) AS actual_stack/);
   assert.match(sql, /p\.template_id = o\.template_id AND p\.quality_level = LEAST\(GREATEST\(COALESCE\(o\.quality_level, i\.quality_level, 0\), 0\), 5\)/);
   // Max buys limit applies, and selected orders are locked so concurrent
   // sweeps (other tabs/admins) skip them instead of buying them twice.

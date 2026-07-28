@@ -17,6 +17,13 @@ why.
   `ceil(seeded_price × buyback%)`, joined on the listing's grade. Player
   listings never enter the reference price (there is no live market average
   in this addon); cheap player posts cannot dilute the buyback threshold.
+- **Resource stacks paid as one unit**: buyback used
+  `COALESCE(items.stack_size, sell_orders.initial_stack_size)`. Player
+  resource listings can leave `items.stack_size = 1` while the real quantity
+  sits on `initial_stack_size`, so the sweep paid for 1 unit, wrote a 1-unit
+  "Take Solari" payment, and deleted the rest of the stack. Quantity is now
+  `GREATEST(item stack, sell-order initial stack)` so a full resource listing
+  is bought and paid in one pass.
 - **Server-side console note**: RedBlink's `addonJobs.js` still builds the
   older template-only buyback SQL. In-page / manual sweeps use the fixed math
   immediately; unattended server sweeps need a matching console update.
