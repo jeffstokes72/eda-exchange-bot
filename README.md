@@ -21,16 +21,24 @@ them.
   ammunition, consumables, utility items, fuel, and cartography from a
   bundled plan generated from Easy Dune Admin's `item-data.json`, with a
   configurable price multiplier.
-- **Grades baked into the seed**: schematics ship at quality grades 1–5 (2
-  listings each); T6 gradeable armor/weapons/stillsuits/augments ship stock
-  (q0) plus ranks 1–5. Vehicle components and commodities are unranked.
-  Durability **100–200** by tier/grade is written into item `stats`
+- **Grades baked into the seed**: only T6 gradeable armor/weapons/stillsuits
+  ship stock (q0) plus ranks 1–5; **augments ship ranks 1–5 only** (no rank 0,
+  and catalog `min_quality_level` when higher — Console itself lifts any
+  `T<n>_Augment_` item below rank 1 to rank 1). Matching schematics ship at
+  grades 1–5 (2 listings each). Tools (including sand compactors), vehicles,
+  and Tier 1–5 gear stay unranked. Vehicle components and commodities are
+  unranked. Durability **100–200** by tier/grade is written into item `stats`
   (`FItemStackAndDurabilityStats`); exchange order wear stays `1.0/1.0`.
 - **Commodities at max stack**: materials use catalog `stack_max` (2 listings
   each). Regenerate with `python3 scripts/generate-seed-plan.py`.
 - **Buyback sweeps**: buys eligible player sell listings at or below a
-  configurable percentage of the seeded price, grade-aware using the same
-  grade multipliers. Seller payment entries use EDA's fixes: per-unit
+  configurable percentage of the **seeded price at that listing's grade**
+  (not a live market average — player posts cannot lower the cap). A listing's
+  grade is the higher of the exchange order's and the backing item's
+  `quality_level`, and listings at a grade the plan does not seed are capped by
+  the nearest seeded grade below them rather than being skipped. Whole stacks
+  are bought in one pass. An empty buy plan is a no-op rather than a malformed
+  `VALUES` clause. Seller payment entries use EDA's fixes: per-unit
   `item_price` and the never-expires sentinel expiration (`999999999`) so the
   game server's expire proc cannot purge an uncollected "Take Solari" payment.
 - **Unattended buyback (server-side schedule)**: on consoles with addon
@@ -44,15 +52,20 @@ them.
   a read-only query first and takes a pre-write backup only when there is
   something to buy. Requires the `scheduler:server` permission to be approved.
   The addon feature-detects console support and hides the section on older
-  consoles.
-- **Auto buyback (in-page)**: optional scheduler that runs the buyback sweep
-  on an interval (default 30 minutes, minimum 10) while the addon page is
-  open. Every run starts with a read-only eligibility query; the write sweep
-  (and RedBlink's automatic pre-write backup) only happens when there is at
-  least one eligible listing, so idle ticks are cheap on self-hosted servers.
-  Kept as the fallback automation for consoles without scheduler support;
-  while the server-side schedule is enabled, the in-page toggle is turned off
-  to avoid redundant sweeps (and their backups).
+  consoles. Seed and unsafe-cleanup are not console scheduler jobs yet.
+  Because the console builds that SQL itself, server-side sweeps do not include
+  this release's per-grade caps or full-stack purchases until RedBlink updates
+  `console/api/src/addonJobs.js`; use the in-page sweep when that matters.
+- **Auto market ops (in-page)**: optional schedulers run buyback, NPC reseed,
+  and unsafe-listing cleanup on intervals while the addon page is open. The
+  unattended reseed always replaces the bot's own listings for the selected
+  exchange, so repeated runs cannot stack duplicate markets.
+  Buyback starts with a read-only eligibility query; the write sweep (and
+  RedBlink's automatic pre-write backup) only happens when there is at least
+  one eligible listing. Fallback for consoles without scheduler support, and
+  the only hands-off path for seed/cleanup until the console adds those jobs;
+  while the server-side buyback schedule is enabled, the in-page buyback
+  toggle is turned off to avoid redundant sweeps (seed/cleanup stay available).
 - **Exchange detection**: resolves access points from
   `dune_exchange_accesspoints` first (the exchange players actually reach
   in-game) and refuses to fabricate one, matching EDA's exchange/access-point
@@ -91,8 +104,9 @@ by installing; server owners approve them from RedBlink Console.
 
 **Compatibility**: console builds without addon scheduler support
 ([Red-Blink/dune-awakening-selfhost-docker#103](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/103))
-reject manifests that request unknown permissions, so addon **0.11.x** (and
-0.10.x) only installs on scheduler-capable consoles. Use addon 0.9.x on older
+reject manifests that request unknown permissions, so addon **0.12.x** /
+0.11.x (and 0.10.x) only installs on scheduler-capable consoles. Use addon
+0.9.x on older
 consoles; its in-page auto buyback still works there.
 
 If the target server uses tightened PostgreSQL credentials, configure
@@ -194,8 +208,8 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.11.1
-   git push origin v0.11.1
+   git tag v0.12.0
+   git push origin v0.12.0
    ```
 
 GitHub Actions validates the addon, packages it, creates the GitHub Release,
