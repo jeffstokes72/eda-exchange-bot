@@ -26,7 +26,9 @@ const TEST_SEED_PLAN = {
     { template_id: "TestOre", display_name: "Test Ore", kind: "resource", stack_size: 100, price: 500, category_mask: 84017152, category_depth: 2, quality_level: 0, listings: 2, durability_cur: 100, durability_max: 100 },
     // Augments have no rank 0 — ranks start at 1 (or catalog min_quality).
     { template_id: "TestAugment", display_name: "Test Augment", kind: "equippable", stack_size: 1, price: 10000, category_mask: 33554432, category_depth: 3, quality_level: 1, listings: 2, durability_cur: 180, durability_max: 180 },
-    { template_id: "TestAugment", display_name: "Test Augment", kind: "equippable", stack_size: 1, price: 12500, category_mask: 33554432, category_depth: 3, quality_level: 2, listings: 2, durability_cur: 188, durability_max: 188 }
+    { template_id: "TestAugment", display_name: "Test Augment", kind: "equippable", stack_size: 1, price: 12500, category_mask: 33554432, category_depth: 3, quality_level: 2, listings: 2, durability_cur: 188, durability_max: 188 },
+    // One unsafe bot listing so drop-unsafe cleanup has something to remove.
+    { template_id: "UnsafeThing", display_name: "Unsafe Thing", kind: "equippable", stack_size: 1, price: 500, category_mask: 16777216, category_depth: 1, quality_level: 0, listings: 1, durability_cur: 100, durability_max: 100 }
   ],
   unsafe_template_ids: ["UnsafeThing"]
 };

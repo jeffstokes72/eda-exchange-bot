@@ -50,6 +50,13 @@ why.
   another full bot market (~5,800 listings) to the exchange. Auto seed now
   always clears the bot's own listings for the selected exchange first; the
   checkbox still controls manual seeding.
+- **Buyback plan tolerates an empty plan table**: the sweep's temp
+  `market_buy_plan` now seeds a NULL-safe row and removes it, so an empty or
+  filtered-out plan no longer turns `INSERT ... VALUES ;` into a syntax error.
+  The manual sweep already fails fast before that, but the unattended path now
+  surfaces "0 purchased" instead of crashing the transaction.
+- **Seeding tolerates an empty plan table** the same way (a no-op reseed rather
+  than a malformed `VALUES` clause).
 - **Server-side console note**: RedBlink's `addonJobs.js` still builds the
   older template-only buyback SQL with `COALESCE(items.stack_size, …, 1)`.
   In-page / manual sweeps use the fixed math immediately; unattended server

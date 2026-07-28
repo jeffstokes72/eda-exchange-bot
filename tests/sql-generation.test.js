@@ -35,7 +35,8 @@ test("unchecking clear-existing removes the cleanup block entirely", async () =>
   harness.setCheckbox("clearExisting", false);
   const sql = await harness.clickAndCaptureSql("seedMarket");
   assert.ok(sql, `seed write did not run: ${harness.statusText()}`);
-  assert.ok(!sql.includes("DELETE FROM"), "no deletes expected when clear-existing is off");
+  assert.ok(!sql.includes("DELETE FROM dune.dune_exchange"), "no sell/order deletes expected when clear-existing is off");
+  assert.ok(!sql.includes("DELETE FROM dune.items"), "no backing item deletes expected when clear-existing is off");
 });
 
 test("global clear confirmation states it affects all exchanges", async () => {

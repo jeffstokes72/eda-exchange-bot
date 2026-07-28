@@ -104,6 +104,18 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.items WHERE id IN (800001, 800003)"), "0");
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.items WHERE id IN (800002, 800004, 800005)"), "3");
 
+    // No consumed order may have been paid out twice: the fulfilled audit
+    // links exactly one payment to each bought order.
+    assert.equal(
+      db.queryOne(DB_NAME, `
+        SELECT COUNT(*) FROM (
+          SELECT original_order_id FROM dune.dune_exchange_fulfilled_orders
+          WHERE completion_type = 4
+          GROUP BY original_order_id HAVING COUNT(*) > 1
+        ) dupes`),
+      "0",
+      "no order may have more than one payment"
+    );
     // Payment records: seller-owned "Take Solari" rows with per-unit price,
     // the never-expires sentinel, is_npc_order = FALSE, and no backing item.
     const payments = paymentOrders();

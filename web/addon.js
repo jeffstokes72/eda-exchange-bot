@@ -439,7 +439,8 @@ END $$;` : "";
 CREATE TEMP TABLE market_seed_plan (template_id TEXT NOT NULL, stack_size BIGINT NOT NULL, item_price BIGINT NOT NULL, category_mask INTEGER NOT NULL, category_depth SMALLINT NOT NULL, quality_level BIGINT NOT NULL, seed_kind TEXT NOT NULL, listing_count INTEGER NOT NULL, item_stats TEXT NOT NULL) ON COMMIT DROP;
 CREATE TEMP TABLE market_seed_result (status TEXT NOT NULL, exchange_id BIGINT NOT NULL, access_point_id BIGINT NOT NULL, owner_id BIGINT NOT NULL, inventory_id BIGINT NOT NULL) ON COMMIT DROP;
 INSERT INTO market_seed_plan (template_id, stack_size, item_price, category_mask, category_depth, quality_level, seed_kind, listing_count, item_stats) VALUES
-${valuesSql};
+${valuesSql || "(NULL,1,0,0,0,0,'equippable',0,'{}')"};
+DELETE FROM market_seed_plan WHERE template_id IS NULL;
 ${clearSql}
 DO $$
 DECLARE
@@ -570,7 +571,8 @@ CREATE TEMP TABLE market_buy_plan (template_id TEXT NOT NULL, quality_level BIGI
 CREATE TEMP TABLE market_buy_result (purchased INTEGER NOT NULL, total_units BIGINT NOT NULL, total_solari BIGINT NOT NULL, threshold_percent INTEGER NOT NULL, max_buys INTEGER NOT NULL) ON COMMIT DROP;
 CREATE TEMP TABLE market_buy_diagnostics (player_sell_orders BIGINT NOT NULL, known_player_sell_orders BIGINT NOT NULL, eligible_player_sell_orders BIGINT NOT NULL, above_threshold_sell_orders BIGINT NOT NULL, unknown_template_sell_orders BIGINT NOT NULL) ON COMMIT DROP;
 INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price) VALUES
-${valuesSql};
+${valuesSql || "(NULL,NULL,NULL) ON CONFLICT DO NOTHING"};
+DELETE FROM market_buy_plan WHERE template_id IS NULL;
 DO $$
 DECLARE
     v_owner_id BIGINT; v_partition_id BIGINT; v_log_order_id BIGINT; v_balance BIGINT; v_purchased INTEGER := 0; v_units BIGINT := 0; v_solari BIGINT := 0; rec RECORD;
