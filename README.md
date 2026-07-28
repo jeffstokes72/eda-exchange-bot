@@ -92,8 +92,9 @@ by installing; server owners approve them from RedBlink Console.
 
 **Compatibility**: console builds without addon scheduler support
 ([Red-Blink/dune-awakening-selfhost-docker#103](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/103))
-reject manifests that request unknown permissions, so addon **0.11.x** (and
-0.10.x) only installs on scheduler-capable consoles. Use addon 0.9.x on older
+reject manifests that request unknown permissions, so addon **0.12.x** /
+0.11.x (and 0.10.x) only installs on scheduler-capable consoles. Use addon
+0.9.x on older
 consoles; its in-page auto buyback still works there.
 
 If the target server uses tightened PostgreSQL credentials, configure
