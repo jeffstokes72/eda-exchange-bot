@@ -46,7 +46,7 @@
         </label>
         <label class="checkbox-line"><input id="clearExisting" type="checkbox" checked> Clear the selected exchange's EDA bot NPC sell listings before seeding</label>
         <label class="checkbox-line"><input id="autoBuyback" type="checkbox"> Auto buyback while this page is open</label>
-        <label class="checkbox-line"><input id="autoSeed" type="checkbox"> Auto reseed NPC market while this page is open</label>
+        <label class="checkbox-line"><input id="autoSeed" type="checkbox"> Auto reseed NPC market while this page is open (always replaces the bot's own listings first)</label>
         <label class="checkbox-line"><input id="autoCleanup" type="checkbox"> Auto drop unsafe NPC listings while this page is open</label>
       </div>
       <div class="button-row">
@@ -65,8 +65,7 @@
 
     <section id="serverScheduleSection" hidden>
       <h2>Server-Side Buyback Schedule</h2>
-      <p>The console runs the buyback sweep unattended, so this page does not need to stay open. Scheduled and manual server-side runs use the <strong>saved</strong> values below with the exchange selected in Exchange Controls at save time; save the schedule before using Run Sweep Now. Every run probes eligibility with a read-only query first and takes a backup only when there is something to buy. All SQL is built by the console from the bundled seed plan. <strong>Seed and unsafe cleanup</strong> are not yet runnable by the console scheduler — enable the in-page auto seed / auto cleanup checkboxes above for those while this page stays open.</p>
-      <div class="controls">
+      <p>The console runs the buyback sweep unattended, so this page does not need to stay open. Scheduled and manual server-side runs use the <strong>saved</strong> values below with the exchange selected in Exchange Controls at save time; save the schedule before using Run Sweep Now. Every run probes eligibility with a read-only query first and takes a backup only when there is something to buy. All SQL is built by the console from the bundled seed plan. <strong>Seed and unsafe cleanup</strong> are not yet runnable by the console scheduler — enable the in-page auto seed / auto cleanup checkboxes above for those while this page stays open.</p>      <div class="controls">
         <label>Interval (minutes)
           <input id="serverIntervalMinutes" type="number" min="10" max="1440" step="1" value="30">
         </label>

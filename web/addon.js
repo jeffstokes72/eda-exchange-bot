@@ -407,14 +407,17 @@ ORDER BY is_global ASC, k.exchange_id ASC;`
     ].join(",")})`).join(",\n");
   }
 
-  function buildSeedSql() {
+  // forceClear is used by the unattended reseed: repeating a full seed on a
+  // timer without clearing first would stack another ~6k bot listings onto the
+  // exchange every interval.
+  function buildSeedSql({ forceClear = false } = {}) {
     const rows = rowsForCurrentMultiplier();
     const valuesSql = valuesForSeedRows(rows);
     const exchangeSql = currentExchangeIdSql();
     // Pre-seed cleanup is scoped to the selected exchange: without the
     // exchange_id condition, reseeding one exchange would delete the bot's
     // listings from every other seeded exchange.
-    const clearSql = clearExistingEl.checked ? `
+    const clearSql = (forceClear || clearExistingEl.checked) ? `
 DO $$
 DECLARE
     v_owner_id BIGINT;
@@ -836,8 +839,8 @@ COMMIT;`;
     autoRunning = true;
     nextAutoSeedAt = Date.now() + currentAutoSeedIntervalMinutes() * 60000;
     try {
-      setAutoStatus("Auto seed: reseeding NPC sell market...");
-      const ok = await runWrite("Auto seed NPC sell market", buildSeedSql, { confirmPrompt: false });
+      setAutoStatus("Auto seed: replacing NPC sell market...");
+      const ok = await runWrite("Auto seed NPC sell market", () => buildSeedSql({ forceClear: true }), { confirmPrompt: false });
       if (ok) {
         setAutoStatus(`Auto seed: finished at ${new Date().toLocaleTimeString()}. ${describeMarketOpsSchedule()}.`, "status ok");
       } else {

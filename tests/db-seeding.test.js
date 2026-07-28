@@ -124,6 +124,24 @@ test("seeding and cleanup against PostgreSQL", { skip: !available && "psql is no
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_sell_orders"), String(2 * LISTINGS_PER_SEED));
   });
 
+  await t.test("unattended reseed replaces bot listings even with clear-existing unchecked", async () => {
+    // An unattended reseed that appends instead of replacing would stack a
+    // whole extra market onto the exchange on every interval, so auto seed
+    // always clears the bot's own listings for the selected exchange first.
+    harness.el("exchangeId").value = EX_A;
+    harness.setCheckbox("clearExisting", false);
+    harness.setCheckbox("autoSeed", true);
+    harness.advanceTime(361 * 60000);
+    harness.autoTick();
+    await harness.waitFor(() => harness.autoStatusText().includes("Auto seed: finished"), { label: "auto seed completion" });
+
+    assert.equal(botOrderCount(EX_A), LISTINGS_PER_SEED, "auto seed must replace, not duplicate, the bot market");
+    assert.equal(botOrderCount(EX_B), LISTINGS_PER_SEED, "auto seed must not touch another exchange");
+    assert.equal(db.queryOne(DB_NAME, `SELECT COUNT(*) FROM dune.items WHERE inventory_id = ${EX_A}`), String(LISTINGS_PER_SEED));
+    harness.setCheckbox("autoSeed", false);
+    harness.setCheckbox("clearExisting", true);
+  });
+
   await t.test("global clear removes bot listings from every exchange but spares players", async () => {
     // A player listing that must survive both cleanups.
     db.execSql(DB_NAME, `
