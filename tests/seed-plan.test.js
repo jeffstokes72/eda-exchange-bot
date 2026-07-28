@@ -47,8 +47,18 @@ test("seed plan bakes ranks only for T6 rankable gear and their schematics", () 
   assert.equal(dunewatcher.find((r) => r.quality_level === 5).durability_max, 200);
   assert.equal(dunewatcher.find((r) => r.quality_level === 0).durability_max, 180);
 
-  // No Tier 1-5 row should carry a quality rank.
+  // Augments never have rank 0; gradeable ones start at 1 (or catalog min_quality).
   const itemData = require("../data/item-data.json");
+  const gradeableAugment = plan.rows.filter((r) => {
+    const entry = itemData.items[r.template_id];
+    return entry && !entry.is_schematic && entry.is_gradeable && String(entry.category || "").startsWith("items/augment/");
+  });
+  assert.ok(gradeableAugment.length > 0, "expected gradeable augment rows");
+  assert.ok(gradeableAugment.every((r) => Number(r.quality_level) >= 1 && Number(r.quality_level) <= 5), "augments must be ranks 1-5 only");
+  const armorWeave = plan.rows.filter((r) => r.template_id === "T6_Augment_Armor1");
+  assert.deepEqual(armorWeave.map((r) => r.quality_level).sort((a, b) => a - b), [3, 4, 5], "min_quality_level 3 augment seeds 3-5");
+
+  // No Tier 1-5 row should carry a quality rank.
   for (const row of plan.rows) {
     if (Number(row.quality_level || 0) === 0) continue;
     const tier = Number(itemData.items[row.template_id]?.tier || 0);

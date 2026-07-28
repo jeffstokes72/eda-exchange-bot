@@ -5,8 +5,10 @@ Rules (see CHANGELOG / operator notes):
 - Sell tradeable items + schematics; exclude contracts, cosmetics/customization,
   construction, emotes, mementos, plot/story/"green" items, and unusable set packs.
 - Commodities list at stack_max with 2 listings.
-- T6 gradeable armor/weapons/stillsuits/augments: stock (q0) + ranks 1-5, 2 each.
-- Schematics for those same T6 rankable families: bake grades 1-5 (2 each).
+- T6 gradeable armor/weapons/stillsuits: stock (q0) + ranks 1-5, 2 each.
+- T6 augments: ranks 1-5 only (no rank 0); honor catalog min_quality_level.
+- Schematics for those same T6 rankable families: bake grades 1-5 (2 each),
+  augments from min_quality_level when set.
 - Tools/vehicles/Tier 1-5 gear and their schematics: stock only (quality 0).
 - Vehicles/ammo/consumables/fuel/cartography: stock only, 2 listings.
 - Durability on listings scales 100..200 by tier and quality grade; seed SQL
@@ -310,16 +312,27 @@ def grades_for(entry: dict, category: str, is_schematic: bool) -> list[int]:
     and all Tier 1–5 gear stay at quality 0 — previously every schematic was
     forced through grades 1–5, which showed up in-game as Rank 1–5 on items
     that do not have ranks.
+
+    Augments have no stock/rank-0 listing: they start at rank 1 (or the
+    catalog min_quality_level when higher) through 5, matching EDA.
     """
     tier = int(entry.get("tier") or 0)
     gradeable = bool(entry.get("is_gradeable"))
     stack = max(1, int(entry.get("stack_max") or 1))
     if stack > 1 or not gradeable or tier < 6 or not is_rankable_category(category):
         return [0]
-    if is_schematic:
-        # Gradeable schematics: ranks 1–5 (no stock q0), matching prior plan.
-        return [1, 2, 3, 4, 5]
-    return [0, 1, 2, 3, 4, 5]
+
+    is_augment = category.startswith("items/augment/")
+    min_q = int(entry.get("min_quality_level") or 0)
+    if min_q < 0 or min_q > 5:
+        min_q = 0
+    if is_schematic or is_augment:
+        # Schematics and augments: no quality 0. Augments that only drop at
+        # higher ranks respect min_quality_level (often 2–5).
+        start = max(1, min_q)
+        return list(range(start, 6))
+    # Armor/weapons/stillsuits: stock (q0) plus ranks 1–5.
+    return list(range(min_q, 6))
 
 
 def main() -> None:
@@ -434,7 +447,7 @@ def main() -> None:
         "notes": [
             "Generated from Easy Dune Admin item-data.json via scripts/generate-seed-plan.py.",
             "Schematic grades 1-5 only for T6 rankable armor/weapons/stillsuits/augments; tools and Tier 1-5 stay quality 0.",
-            "T6 rankable physical gear seeds stock (q0) plus ranks 1-5 (2 listings each).",
+            "T6 rankable armor/weapons/stillsuits seed stock (q0) plus ranks 1-5; augments seed ranks 1-5 only (honor min_quality_level; no rank 0).",
             "Commodities use stack_max from the catalog. Absolute durability 100-200 by tier/grade is stored on plan rows for item stats seeding; exchange order wear stays 1.0/1.0.",
             "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story items, social wearables, unusable set packs.",
             "Write actions run through RedBlink's permissioned database:write addon bridge.",

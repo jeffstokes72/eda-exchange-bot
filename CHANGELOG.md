@@ -27,8 +27,10 @@ why.
 - **Tools and Tier 1–5 seeded with fake ranks**: every schematic was forced
   through quality grades 1–5, so sand compactors, vehicles, and T1–5 gear
   schematics showed in-game as Rank 1–5. Ranks are limited to catalog-gradeable
-  **T6 armor / weapons / stillsuits / augments** (physical stock q0–5, matching
-  schematics 1–5). Tools and lower tiers stay quality 0.
+  **T6 armor / weapons / stillsuits / augments**. Armor/weapons/stillsuits keep
+  physical stock q0 plus ranks 1–5; **augments are ranks 1–5 only** (no rank 0;
+  start at catalog `min_quality_level` when higher). Matching schematics stay
+  1–5. Tools and lower tiers stay quality 0.
 - **Server-side console note**: RedBlink's `addonJobs.js` still builds the
   older template-only buyback SQL. In-page / manual sweeps use the fixed math
   immediately; unattended server sweeps need a matching console update.

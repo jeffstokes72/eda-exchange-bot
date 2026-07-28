@@ -68,7 +68,7 @@ test("buyback SQL: plan prices, per-grade caps, and threshold rounding", async (
   assert.ok(sql.includes("('TestRifle',3,4800)"), "TestRifle q3: 8000 * 60% = 4800 (not FLOOR(3000*1.5)=4500)");
   assert.ok(sql.includes("('TestSchematic',1,6000)"), "TestSchematic q1: 10000 * 60% = 6000");
   assert.ok(sql.includes("('TestOre',0,300)"), "TestOre q0: 500 * 60% = 300");
-  assert.ok(sql.includes("('TestAugment',0,6000)"), "TestAugment q0: 10000 * 60% = 6000");
+  assert.ok(sql.includes("('TestAugment',1,6000)"), "TestAugment q1: 10000 * 60% = 6000");
   assert.ok(sql.includes("('TestAugment',2,7500)"), "TestAugment q2: 12500 * 60% = 7500");
   assert.ok(!sql.includes("('TestRifle',3000)"), "legacy template-only plan tuples must be gone");
   assert.ok(!sql.includes("FLOOR(p.max_unit_price *"), "must not re-apply grade multipliers in SQL");
