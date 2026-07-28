@@ -94,7 +94,14 @@ test("buyback SQL: payment records are per-unit, never-expiring, seller-owned", 
   // takes GREATEST(item, sell_order) so a resource listing is bought in full.
   assert.match(sql, /o\.item_price > 0 AND GREATEST\(COALESCE\(i\.stack_size, 0\), COALESCE\(s\.initial_stack_size, 0\)\) > 0 AND o\.item_price <= p\.max_unit_price/);
   assert.match(sql, /GREATEST\(COALESCE\(i\.stack_size, 0\), COALESCE\(s\.initial_stack_size, 0\)\) AS actual_stack/);
-  assert.match(sql, /p\.template_id = o\.template_id AND p\.quality_level = LEAST\(GREATEST\(COALESCE\(o\.quality_level, i\.quality_level, 0\), 0\), 5\)/);
+  // Grade comes from whichever of the order/item rows carries it: the order
+  // column is NOT NULL DEFAULT 0, so COALESCE alone would never see an item
+  // rank. The plan lookup then prefers the listing's own grade and otherwise
+  // falls back to the nearest seeded grade below it.
+  assert.match(sql, /LEAST\(GREATEST\(COALESCE\(o\.quality_level, 0\), COALESCE\(i\.quality_level, 0\), 0\), 5\)/);
+  assert.ok(!sql.includes("COALESCE(o.quality_level, i.quality_level, 0)"), "order grade must not COALESCE past a NOT NULL column");
+  assert.match(sql, /LEFT JOIN LATERAL \(\s+SELECT pp\.template_id, pp\.quality_level, pp\.max_unit_price\s+FROM market_buy_plan pp\s+WHERE pp\.template_id = o\.template_id/);
+  assert.match(sql, /ORDER BY \(pp\.quality_level <= LEAST\(GREATEST\(COALESCE\(o\.quality_level, 0\), COALESCE\(i\.quality_level, 0\), 0\), 5\)\) DESC/);
   // Max buys limit applies, and selected orders are locked so concurrent
   // sweeps (other tabs/admins) skip them instead of buying them twice.
   assert.match(sql, /LIMIT 500 FOR UPDATE OF o, s SKIP LOCKED LOOP/);

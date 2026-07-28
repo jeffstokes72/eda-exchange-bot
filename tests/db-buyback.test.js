@@ -178,6 +178,45 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     );
   });
 
+  await t.test("a grade the plan does not seed falls back to the nearest seeded grade below it", async () => {
+    // The plan seeds TestRifle at q0 and q3 only. A q4 listing must still be
+    // buyable, capped by the q3 row (4800), not skipped as unknown and not
+    // priced off a higher grade the plan never seeded.
+    db.execSql(DB_NAME, `
+      INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id, quality_level) VALUES
+        (800030, ${EX_A}, 1, 9030, 'TestRifle', 4),
+        (800031, ${EX_A}, 1, 9031, 'TestRifle', 4);
+      INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, quality_level, item_id) VALUES
+        (700030, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestRifle', 4800, 4, 800030),
+        (700031, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestRifle', 4801, 4, 800031);
+      INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (700030, 1, 4800), (700031, 1, 4801);`);
+    const sql = await harness.clickAndCaptureSql("buySweep");
+    assert.ok(sql, `buyback write did not run: ${harness.statusText()}`);
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700030"), "0", "q4 listing at the q3 cap must be bought");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700031"), "1", "one Solari over the q3 cap must not be bought");
+  });
+
+  await t.test("a rank carried only by the backing item still matches its own grade row", async () => {
+    // TestAugment is seeded at q1 (6000 cap) and q2 (7500 cap) and has no rank
+    // 0 row. When the exchange order row keeps the default quality_level 0 but
+    // the item carries rank 2, the listing must be capped at 7500 rather than
+    // dropping out of the plan entirely.
+    db.execSql(DB_NAME, `
+      INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id, quality_level) VALUES
+        (800040, ${EX_A}, 1, 9040, 'TestAugment', 2);
+      INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, quality_level, item_id)
+      VALUES (700040, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestAugment', 7500, 0, 800040);
+      INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (700040, 1, 7500);`);
+    const balanceBefore = db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`);
+    const sql = await harness.clickAndCaptureSql("buySweep");
+    assert.ok(sql, `buyback write did not run: ${harness.statusText()}`);
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700040"), "0");
+    assert.equal(
+      db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`),
+      String(Number(balanceBefore) - 7500)
+    );
+  });
+
   await t.test("automatic sweep buys a newly eligible order end-to-end", async () => {
     db.execSql(DB_NAME, `
       INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id) VALUES (800006, ${EX_A}, 50, 9006, 'TestOre');
@@ -193,7 +232,15 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
 
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700006"), "0");
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.items WHERE id = 800006"), "0");
-    assert.equal(paymentOrders().filter((row) => row.item_price === "200").length, 1);
+    // Exactly one payment for this order, matched through its audit row rather
+    // than by price (earlier subtests also bought TestOre at 200/unit).
+    assert.equal(
+      db.queryOne(DB_NAME, `
+        SELECT COUNT(*) FROM dune.dune_exchange_fulfilled_orders f
+        JOIN dune.dune_exchange_orders o ON o.id = f.order_id
+        WHERE f.original_order_id = 700006 AND o.expiration_time = ${SENTINEL} AND o.is_npc_order = FALSE AND o.item_price = 200`),
+      "1"
+    );
     assert.equal(
       db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`),
       String(Number(balanceBefore) - 200 * 50)

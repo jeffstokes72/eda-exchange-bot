@@ -487,11 +487,13 @@ SELECT r.status, r.exchange_id, r.access_point_id, r.owner_id, r.inventory_id, S
 COMMIT;`;
   }
 
-  // Order grade used for buyback plan matching. Prefer the exchange order's
-  // quality_level (what the game listed); fall back to the backing item when
-  // the order column is null. Player posts never enter the reference price —
+  // Order grade used for buyback plan matching. dune_exchange_orders
+  // .quality_level is NOT NULL DEFAULT 0, so a COALESCE chain would never reach
+  // the backing item and a listing whose rank only landed on dune.items would
+  // be priced as rank 0. Rank 0 means "no rank", so the higher of the two is
+  // the listing's real grade. Player posts never enter the reference price —
   // caps come only from the seeded plan row at this grade.
-  const BUYBACK_ORDER_GRADE_SQL = "LEAST(GREATEST(COALESCE(o.quality_level, i.quality_level, 0), 0), 5)";
+  const BUYBACK_ORDER_GRADE_SQL = "LEAST(GREATEST(COALESCE(o.quality_level, 0), COALESCE(i.quality_level, 0), 0), 5)";
 
   // Full stack quantity for a sell listing. Player resource listings sometimes
   // keep the real quantity on sell_orders.initial_stack_size while
@@ -506,8 +508,24 @@ COMMIT;`;
   // already threshold% of the seeded price at this exact grade, so no further
   // grade multiplier is applied in SQL.
   const BUYBACK_ELIGIBLE_PREDICATE = `o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price <= p.max_unit_price`;
-  const BUYBACK_PLAN_JOIN = `JOIN market_buy_plan p ON p.template_id = o.template_id AND p.quality_level = ${BUYBACK_ORDER_GRADE_SQL}`;
-  const BUYBACK_PLAN_LEFT_JOIN = `LEFT JOIN market_buy_plan p ON p.template_id = o.template_id AND p.quality_level = ${BUYBACK_ORDER_GRADE_SQL}`;
+
+  // Plan lookup for one listing: the cap for its own grade when the plan seeds
+  // that grade, otherwise the closest seeded grade. Matching the grade exactly
+  // and nothing else would make whole classes of listing unbuyable, because the
+  // plan deliberately does not seed every grade of every template (tools and
+  // Tier 1-5 are stock-only, augments start at rank 1 or their catalog
+  // minimum). Preferring the nearest seeded grade *below* the listing keeps the
+  // fallback conservative: an unseeded high grade is capped by a cheaper
+  // reference, never a more expensive one. Only a listing below every seeded
+  // grade falls upward, to the cheapest row the template has.
+  const BUYBACK_PLAN_LATERAL = `LEFT JOIN LATERAL (
+        SELECT pp.template_id, pp.quality_level, pp.max_unit_price
+        FROM market_buy_plan pp
+        WHERE pp.template_id = o.template_id
+        ORDER BY (pp.quality_level <= ${BUYBACK_ORDER_GRADE_SQL}) DESC,
+                 CASE WHEN pp.quality_level <= ${BUYBACK_ORDER_GRADE_SQL} THEN -pp.quality_level ELSE pp.quality_level END
+        LIMIT 1
+    ) p ON TRUE`;
 
   // Buyback plan: one cap per (template_id, quality_level) = threshold% of that
   // seeded row's price. Seeded grade prices are not always q0 × grade_mult
@@ -567,14 +585,14 @@ BEGIN
     IF v_balance < 1000000000000 THEN
         PERFORM dune.dune_exchange_modify_user_solari_balance(v_owner_id, 9000000000000 - v_balance);
     END IF;
-    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND ${BUYBACK_ELIGIBLE_PREDICATE}), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price > p.max_unit_price), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LEFT_JOIN} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
+    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND ${BUYBACK_ELIGIBLE_PREDICATE}), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price > p.max_unit_price), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LATERAL} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
     -- FOR UPDATE OF o, s SKIP LOCKED is the database-level concurrency guard:
     -- the page-level writeInProgress flag only covers one browser tab, so two
     -- tabs/admins sweeping at once could otherwise buy the same order twice
     -- (duplicate seller payment, double bot debit). Locking the selected order
     -- rows makes concurrent sweeps skip anything already claimed, and rows
     -- deleted by a committed sweep drop out of the re-checked result.
-    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, ${BUYBACK_STACK_SQL} AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_JOIN} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${currentMaxBuys()} FOR UPDATE OF o, s SKIP LOCKED LOOP
+    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, ${BUYBACK_STACK_SQL} AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LATERAL} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${currentMaxBuys()} FOR UPDATE OF o, s SKIP LOCKED LOOP
         -- Seller "Take Solari" payment entry. item_price stays the per-unit
         -- price (the game multiplies by stack_size itself) and expiration is
         -- the never-expires sentinel so the game server's expire proc cannot
@@ -615,7 +633,7 @@ SELECT COUNT(*)::text AS eligible_orders
 FROM dune.dune_exchange_orders o
 JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id
 LEFT JOIN dune.items i ON i.id = o.item_id
-${BUYBACK_PLAN_JOIN}
+${BUYBACK_PLAN_LATERAL}
 LEFT JOIN bot b ON TRUE
 WHERE o.exchange_id = ${exchangeId}
   AND o.is_npc_order = FALSE
