@@ -4,6 +4,75 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.12.0 - 2026-07-28
+
+### Fixed
+
+- **Buyback caps miss true 60% of seeded grade prices**: after grades were
+  baked into the seed plan, buyback still derived a single grade-0/1 base and
+  re-applied grade multipliers in SQL (`FLOOR(cap × grade_mult)`). Seeded
+  grade prices are not exactly `q0 × mult` after stepped rounding, so hundreds
+  of grade rows undershot (or overshot) **60% of the seeded market at that
+  grade**. Caps are now one row per `(template_id, quality_level)` =
+  `ceil(seeded_price × buyback%)`, joined on the listing's grade. Player
+  listings never enter the reference price (there is no live market average
+  in this addon); cheap player posts cannot dilute the buyback threshold.
+- **Resource stacks paid as one unit**: buyback used
+  `COALESCE(items.stack_size, sell_orders.initial_stack_size)`. Player
+  resource listings can leave `items.stack_size = 1` while the real quantity
+  sits on `initial_stack_size`, so the sweep paid for 1 unit, wrote a 1-unit
+  "Take Solari" payment, and deleted the rest of the stack. Quantity is now
+  `GREATEST(item stack, sell-order initial stack)` so a full resource listing
+  is bought and paid in one pass.
+- **Tools and Tier 1–5 seeded with fake ranks**: every schematic was forced
+  through quality grades 1–5, so sand compactors, vehicles, and T1–5 gear
+  schematics showed in-game as Rank 1–5. Ranks are limited to catalog-gradeable
+  **T6 armor / weapons / stillsuits / augments**. Armor/weapons/stillsuits keep
+  physical stock q0 plus ranks 1–5; **augments are ranks 1–5 only** (no rank 0;
+  start at catalog `min_quality_level` when higher). Matching schematics stay
+  1–5. Tools and lower tiers stay quality 0. Augments the catalog does not mark
+  gradeable seed a single **rank 1** listing rather than rank 0, matching
+  Console's `normalizeStandaloneAugmentQuality`, which lifts any
+  `T<n>_Augment_` item below rank 1 up to rank 1.
+- **Listings whose grade the plan does not seed were silently unbuyable**:
+  matching the plan on the listing's exact grade dropped every listing at a
+  grade the plan deliberately skips (tools and Tier 1–5 are stock-only,
+  augments start at rank 1 or their catalog minimum), counting them as unknown
+  templates. The plan lookup now takes the listing's own grade when it is
+  seeded and otherwise the nearest seeded grade **below** it, so an unseeded
+  grade is capped by a cheaper reference instead of being skipped.
+- **Ranks stored only on the backing item priced the listing as rank 0**:
+  `dune_exchange_orders.quality_level` is `NOT NULL DEFAULT 0`, so the
+  `COALESCE(order, item)` fallback could never reach `dune.items`. The grade is
+  now the higher of the two rows, since rank 0 means "no rank".
+- **Unattended reseed could stack duplicate markets**: auto seed reused the
+  "clear existing" checkbox, so with it unchecked every interval appended
+  another full bot market (~5,800 listings) to the exchange. Auto seed now
+  always clears the bot's own listings for the selected exchange first; the
+  checkbox still controls manual seeding.
+- **Buyback plan tolerates an empty plan table**: the sweep's temp
+  `market_buy_plan` now seeds a NULL-safe row and removes it, so an empty or
+  filtered-out plan no longer turns `INSERT ... VALUES ;` into a syntax error.
+  The manual sweep already fails fast before that, but the unattended path now
+  surfaces "0 purchased" instead of crashing the transaction.
+- **Seeding tolerates an empty plan table** the same way (a no-op reseed rather
+  than a malformed `VALUES` clause).
+- **Server-side console note**: RedBlink's `addonJobs.js` still builds the
+  older template-only buyback SQL with `COALESCE(items.stack_size, …, 1)`.
+  In-page / manual sweeps use the fixed math immediately; unattended server
+  sweeps keep the old caps and the single-unit stack behavior until the
+  console ships a matching update. The server schedule panel now says so.
+
+### Added
+
+- **In-page auto seed and auto unsafe cleanup**: optional schedulers (default
+  every 360 minutes) that reseed the NPC market and drop unsafe NPC listings
+  while the addon page stays open, alongside auto buyback. Jobs share a
+  single write lock; cleanup runs before seed before buyback when multiple
+  are due. Settings persist in `localStorage`.
+- Server schedule panel copy clarifies that seed/cleanup are not yet console
+  scheduler jobs — use the in-page toggles for those.
+
 ## 0.11.1 - 2026-07-27
 
 ### Fixed
@@ -29,7 +98,9 @@ Full market seed overhaul from Easy Dune Admin's authoritative
   `data/item-data.json` via `scripts/generate-seed-plan.py` (~4300 unique
   rows / ~8600 listings). Pricing follows EDA's vendor-price × rarity model
   with grade multipliers `[1, 1, 1.25, 1.5, 1.75, 2]`.
-- **Schematic grades 1-5 are baked into the seed** (2 listings per grade).
+- **Schematic grades 1-5 are baked into the seed** for T6 rankable
+  armor/weapons/stillsuits/augments only (2 listings per grade). Tools,
+  vehicles, and Tier 1–5 gear (and their schematics) stay at quality 0.
   The UI checkbox / per-grade / material-listings controls are removed; the
   preview and seed SQL use the plan rows as shipped.
 - **Durability on seeded items** is absolute **100–200** (base 100, inflated

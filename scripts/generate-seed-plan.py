@@ -5,9 +5,12 @@ Rules (see CHANGELOG / operator notes):
 - Sell tradeable items + schematics; exclude contracts, cosmetics/customization,
   construction, emotes, mementos, plot/story/"green" items, and unusable set packs.
 - Commodities list at stack_max with 2 listings.
-- T6 gradeable armor/weapons/stillsuits/augments: stock (q0) + ranks 1-5, 2 each.
-- Schematics: bake grades 1-5 (2 each); no separate UI checkbox.
-- Vehicles/tools/ammo/consumables/fuel/cartography: stock only, 2 listings.
+- T6 gradeable armor/weapons/stillsuits: stock (q0) + ranks 1-5, 2 each.
+- T6 augments: ranks 1-5 only (no rank 0); honor catalog min_quality_level.
+- Schematics for those same T6 rankable families: bake grades 1-5 (2 each),
+  augments from min_quality_level when set.
+- Tools/vehicles/Tier 1-5 gear and their schematics: stock only (quality 0).
+- Vehicles/ammo/consumables/fuel/cartography: stock only, 2 listings.
 - Durability on listings scales 100..200 by tier and quality grade; seed SQL
   writes that into item stats (orders keep wear 1.0/1.0).
 """
@@ -28,6 +31,7 @@ OLD = OUT  # reuse prior unsafe list when present
 
 PRICE_MULTIPLIER = 5
 LISTINGS_PER_GRADE = 2
+AUGMENT_TEMPLATE_RE = re.compile(r"^T\d+_Augment_", re.IGNORECASE)
 GRADE_MULTIPLIERS = [1.0, 1.0, 1.25, 1.5, 1.75, 2.0]
 VENDOR_MULT = {"common": 1.0, "rare": 5.0, "unique": 5.0, "memento": 2.0}
 MIN_MEANINGFUL_VENDOR_PRICE = 10
@@ -233,10 +237,8 @@ def kind_for(category: str, is_schematic: bool) -> str:
     return "equippable"
 
 
-def is_rankable(category: str, is_schematic: bool, is_gradeable: bool) -> bool:
-    """Physical armor/weapons/stillsuits/augments that the game marks gradeable."""
-    if is_schematic or not is_gradeable:
-        return False
+def is_rankable_category(category: str) -> bool:
+    """Armor/weapons/stillsuits/augments — the only families that use quality ranks."""
     return any(
         category.startswith(p)
         for p in (
@@ -247,6 +249,16 @@ def is_rankable(category: str, is_schematic: bool, is_gradeable: bool) -> bool:
             "items/augment/",
         )
     )
+
+
+def is_augment(template_id: str, category: str) -> bool:
+    """Augments, matched the way RedBlink Console matches them.
+
+    Console's `isStandaloneAugmentTemplate` (console/api/src/duneDb.js) accepts
+    the augment catalog plus the `T<n>_Augment_` id pattern, and its
+    `normalizeStandaloneAugmentQuality` lifts anything below rank 1 up to 1.
+    """
+    return category.startswith("items/augment/") or bool(AUGMENT_TEMPLATE_RE.match(template_id))
 
 
 def should_exclude(tid: str, entry: dict) -> str | None:
@@ -289,12 +301,39 @@ def should_exclude(tid: str, entry: dict) -> str | None:
     return None
 
 
-def grades_for(entry: dict, category: str, is_schematic: bool) -> list[int]:
+def grades_for(template_id: str, entry: dict, category: str, is_schematic: bool) -> list[int]:
+    """Quality levels to seed.
+
+    Only catalog-gradeable T6 armor/weapons/stillsuits/augments (and their
+    schematics) get ranks. Tools (sand compactors, cutterays, …), vehicles,
+    and all Tier 1–5 gear stay at quality 0 — previously every schematic was
+    forced through grades 1–5, which showed up in-game as Rank 1–5 on items
+    that do not have ranks.
+
+    Augments have no rank 0 at all: they start at rank 1 (or the catalog
+    min_quality_level when higher) through 5. Console enforces the same floor
+    when it grants augments, so a rank-0 augment listing would be a state the
+    game itself never produces.
+    """
+    tier = int(entry.get("tier") or 0)
+    gradeable = bool(entry.get("is_gradeable"))
+    stack = max(1, int(entry.get("stack_max") or 1))
+    min_q = int(entry.get("min_quality_level") or 0)
+    if min_q < 0 or min_q > 5:
+        min_q = 0
+
+    if is_augment(template_id, category):
+        start = max(1, min_q)
+        # A non-gradeable augment has one real rank, not a 1-5 ladder, but it
+        # still cannot be rank 0.
+        return list(range(start, 6)) if gradeable else [start]
+
+    if stack > 1 or not gradeable or tier < 6 or not is_rankable_category(category):
+        return [0]
     if is_schematic:
-        return [1, 2, 3, 4, 5]
-    if is_rankable(category, False, bool(entry.get("is_gradeable"))):
-        return [0, 1, 2, 3, 4, 5]
-    return [0]
+        return list(range(max(1, min_q), 6))
+    # Armor/weapons/stillsuits: stock (q0) plus ranks 1–5.
+    return list(range(min_q, 6))
 
 
 def main() -> None:
@@ -336,7 +375,7 @@ def main() -> None:
         mask, depth = mask_depth
 
         base = base_price(entry, is_schematic)
-        for grade in grades_for(entry, category, is_schematic):
+        for grade in grades_for(tid, entry, category, is_schematic):
             dur = durability_for(tier, grade)
             rows.append(
                 {
@@ -400,7 +439,7 @@ def main() -> None:
 
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
-        "panel_version": "0.11.1",
+        "panel_version": "0.12.0",
         "price_multiplier": PRICE_MULTIPLIER,
         "market_bot_class": "Revy",
         "summary": summary,
@@ -408,7 +447,8 @@ def main() -> None:
         "rows": published,
         "notes": [
             "Generated from Easy Dune Admin item-data.json via scripts/generate-seed-plan.py.",
-            "Schematic grades 1-5 and T6 rankable gear grades 0-5 are baked into rows (2 listings each).",
+            "Schematic grades 1-5 only for T6 rankable armor/weapons/stillsuits/augments; tools and Tier 1-5 stay quality 0.",
+            "T6 rankable armor/weapons/stillsuits seed stock (q0) plus ranks 1-5; augments seed ranks 1-5 only (honor min_quality_level; no rank 0).",
             "Commodities use stack_max from the catalog. Absolute durability 100-200 by tier/grade is stored on plan rows for item stats seeding; exchange order wear stays 1.0/1.0.",
             "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story items, social wearables, unusable set packs.",
             "Write actions run through RedBlink's permissioned database:write addon bridge.",

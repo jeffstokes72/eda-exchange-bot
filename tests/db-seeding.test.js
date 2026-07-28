@@ -24,8 +24,10 @@ const AP_B = "102";
 
 // Test seed plan at default settings (grades baked into the plan; no UI
 // expansion): TestRifle q0+q3 (2+2) + TestSchematic 2 + TestOre 2 +
-// TestAugment q0+q2 (2+2) = 12 listings per seeded exchange.
-const LISTINGS_PER_SEED = 12;
+// TestAugment q1+q2 (2+2) + UnsafeThing 1 = 13 listings per seeded exchange.
+// UnsafeThing is in the plan's unsafe list but is seeded once per exchange so
+// the cleanup job has a bot-owned unsafe row to remove.
+const LISTINGS_PER_SEED = 13;
 
 const available = db.psqlAvailable();
 
@@ -77,11 +79,11 @@ test("seeding and cleanup against PostgreSQL", { skip: !available && "psql is no
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_sell_orders"), String(LISTINGS_PER_SEED));
     // Absolute durability is on item stats; order wear stays normalized 1.0/1.0.
     assert.match(
-      db.queryOne(DB_NAME, `SELECT stats::text FROM dune.items WHERE inventory_id = ${EX_A} AND template_id = 'TestAugment' AND quality_level = 0 LIMIT 1`),
+      db.queryOne(DB_NAME, `SELECT stats::text FROM dune.items WHERE inventory_id = ${EX_A} AND template_id = 'TestAugment' AND quality_level = 1 LIMIT 1`),
       /"MaxDurability"\s*:\s*180/
     );
     assert.equal(
-      db.queryOne(DB_NAME, `SELECT (stats->'FItemStackAndDurabilityStats'->1->>'MaxDurability') FROM dune.items WHERE inventory_id = ${EX_A} AND template_id = 'TestAugment' AND quality_level = 0 LIMIT 1`),
+      db.queryOne(DB_NAME, `SELECT (stats->'FItemStackAndDurabilityStats'->1->>'MaxDurability') FROM dune.items WHERE inventory_id = ${EX_A} AND template_id = 'TestAugment' AND quality_level = 1 LIMIT 1`),
       "180"
     );
     assert.equal(
@@ -124,6 +126,59 @@ test("seeding and cleanup against PostgreSQL", { skip: !available && "psql is no
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_sell_orders"), String(2 * LISTINGS_PER_SEED));
   });
 
+  await t.test("unattended reseed replaces bot listings even with clear-existing unchecked", async () => {
+    // An unattended reseed that appends instead of replacing would stack a
+    // whole extra market onto the exchange on every interval, so auto seed
+    // always clears the bot's own listings for the selected exchange first.
+    harness.el("exchangeId").value = EX_A;
+    harness.setCheckbox("clearExisting", false);
+    harness.setCheckbox("autoSeed", true);
+    harness.advanceTime(361 * 60000);
+    harness.autoTick();
+    await harness.waitFor(() => harness.autoStatusText().includes("Auto seed: finished"), { label: "auto seed completion" });
+
+    assert.equal(botOrderCount(EX_A), LISTINGS_PER_SEED, "auto seed must replace, not duplicate, the bot market");
+    assert.equal(botOrderCount(EX_B), LISTINGS_PER_SEED, "auto seed must not touch another exchange");
+    assert.equal(db.queryOne(DB_NAME, `SELECT COUNT(*) FROM dune.items WHERE inventory_id = ${EX_A}`), String(LISTINGS_PER_SEED));
+    harness.setCheckbox("autoSeed", false);
+    harness.setCheckbox("clearExisting", true);
+  });
+
+  await t.test("auto cleanup drops unsafe bot listings and spares players", async () => {
+    // The bundled unsafe list ('UnsafeThing') covers bot rows; a player listing
+    // with the same template must survive. Reasserting player safety here
+    // keeps the timer job pinned to the same scope as the manual button.
+    db.execSql(DB_NAME, `
+      INSERT INTO dune.actors (id, class, partition_id) VALUES (900002, 'BP_DuneCharacter', 1);
+      INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id) VALUES (800050, ${EX_A}, 1, 9998, 'UnsafeThing');
+      INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, item_id)
+      VALUES (700050, ${EX_A}, ${AP_A}, 900002, FALSE, 123456, 'UnsafeThing', 111, 800050);
+      INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (700050, 1, 111);`);
+
+    const botUnsafe = db.queryOne(DB_NAME, `
+      SELECT COUNT(*) FROM dune.dune_exchange_orders o JOIN dune.actors a ON a.id = o.owner_id
+      WHERE a.class = 'Revy' AND o.template_id = 'UnsafeThing'`);
+    assert.ok(Number(botUnsafe) > 0, "fixture must start with unsafe bot listings");
+
+    harness.el("exchangeId").value = EX_A;
+    harness.setCheckbox("autoCleanup", true);
+    harness.advanceTime(361 * 60000);
+    harness.autoTick();
+    await harness.waitFor(() => harness.autoStatusText().includes("Auto cleanup: finished"), { label: "auto cleanup completion" });
+
+    assert.equal(
+      db.queryOne(DB_NAME, `
+        SELECT COUNT(*) FROM dune.dune_exchange_orders o JOIN dune.actors a ON a.id = o.owner_id
+        WHERE a.class = 'Revy' AND o.template_id = 'UnsafeThing'`),
+      "0",
+      "unsafe bot listings must be dropped"
+    );
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700050"), "1", "player unsafe listings must survive");
+    // Safe listings = the full seed minus the one unsafe bot row it carried.
+    assert.equal(botOrderCount(EX_A), LISTINGS_PER_SEED - 1, "cleanup must not touch safe bot listings");
+    harness.setCheckbox("autoCleanup", false);
+  });
+
   await t.test("global clear removes bot listings from every exchange but spares players", async () => {
     // A player listing that must survive both cleanups.
     db.execSql(DB_NAME, `
@@ -139,10 +194,11 @@ test("seeding and cleanup against PostgreSQL", { skip: !available && "psql is no
 
     assert.equal(botOrderCount(EX_A), 0);
     assert.equal(botOrderCount(EX_B), 0);
-    // Only the player's order, sell order, and item survive.
-    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders"), "1");
-    assert.equal(db.queryOne(DB_NAME, "SELECT id::text FROM dune.dune_exchange_orders"), "700001");
-    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_sell_orders"), "1");
-    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.items"), "1");
+    // Only the two player listings survive: the TestOre row inserted above and
+    // the UnsafeThing row the unsafe-cleanup test deliberately spared.
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders"), "2");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE owner_id IN (900001, 900002)"), "2");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_sell_orders"), "2");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.items"), "2");
   });
 });

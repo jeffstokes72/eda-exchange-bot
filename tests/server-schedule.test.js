@@ -62,7 +62,7 @@ test("older console keeps the section hidden and the in-page auto buyback untouc
   // The in-page loop still works end-to-end on older consoles.
   await harness.loadExchangesWithRows([exchangeRow({ exchange_id: "77" })]);
   harness.setCheckbox("autoBuyback", true);
-  assert.match(harness.autoStatusText(), /Auto buyback armed/);
+  assert.match(harness.autoStatusText(), /Auto market ops:.*buyback every 30 min/);
 });
 
 test("supported console shows the section and populates the saved schedule", async () => {
