@@ -6,8 +6,9 @@ Rules (see CHANGELOG / operator notes):
   construction, emotes, mementos, plot/story/"green" items, and unusable set packs.
 - Commodities list at stack_max with 2 listings.
 - T6 gradeable armor/weapons/stillsuits/augments: stock (q0) + ranks 1-5, 2 each.
-- Schematics: bake grades 1-5 (2 each); no separate UI checkbox.
-- Vehicles/tools/ammo/consumables/fuel/cartography: stock only, 2 listings.
+- Schematics for those same T6 rankable families: bake grades 1-5 (2 each).
+- Tools/vehicles/Tier 1-5 gear and their schematics: stock only (quality 0).
+- Vehicles/ammo/consumables/fuel/cartography: stock only, 2 listings.
 - Durability on listings scales 100..200 by tier and quality grade; seed SQL
   writes that into item stats (orders keep wear 1.0/1.0).
 """
@@ -233,10 +234,8 @@ def kind_for(category: str, is_schematic: bool) -> str:
     return "equippable"
 
 
-def is_rankable(category: str, is_schematic: bool, is_gradeable: bool) -> bool:
-    """Physical armor/weapons/stillsuits/augments that the game marks gradeable."""
-    if is_schematic or not is_gradeable:
-        return False
+def is_rankable_category(category: str) -> bool:
+    """Armor/weapons/stillsuits/augments — the only families that use quality ranks."""
     return any(
         category.startswith(p)
         for p in (
@@ -247,6 +246,20 @@ def is_rankable(category: str, is_schematic: bool, is_gradeable: bool) -> bool:
             "items/augment/",
         )
     )
+
+
+def is_rankable(category: str, is_schematic: bool, is_gradeable: bool, tier: int = 0) -> bool:
+    """Physical T6 armor/weapons/stillsuits/augments the game marks gradeable.
+
+    Tools, vehicles, power packs, compactors, shields, etc. never get ranks —
+    even when a schematic row exists — matching Easy Dune Admin's applicableGrades
+    (non-gradeable / stackable → quality 0 only) plus a category allow-list.
+    """
+    if is_schematic or not is_gradeable:
+        return False
+    if int(tier or 0) < 6:
+        return False
+    return is_rankable_category(category)
 
 
 def should_exclude(tid: str, entry: dict) -> str | None:
@@ -290,11 +303,23 @@ def should_exclude(tid: str, entry: dict) -> str | None:
 
 
 def grades_for(entry: dict, category: str, is_schematic: bool) -> list[int]:
+    """Quality levels to seed.
+
+    Only catalog-gradeable T6 armor/weapons/stillsuits/augments (and their
+    schematics) get ranks. Tools (sand compactors, cutterays, …), vehicles,
+    and all Tier 1–5 gear stay at quality 0 — previously every schematic was
+    forced through grades 1–5, which showed up in-game as Rank 1–5 on items
+    that do not have ranks.
+    """
+    tier = int(entry.get("tier") or 0)
+    gradeable = bool(entry.get("is_gradeable"))
+    stack = max(1, int(entry.get("stack_max") or 1))
+    if stack > 1 or not gradeable or tier < 6 or not is_rankable_category(category):
+        return [0]
     if is_schematic:
+        # Gradeable schematics: ranks 1–5 (no stock q0), matching prior plan.
         return [1, 2, 3, 4, 5]
-    if is_rankable(category, False, bool(entry.get("is_gradeable"))):
-        return [0, 1, 2, 3, 4, 5]
-    return [0]
+    return [0, 1, 2, 3, 4, 5]
 
 
 def main() -> None:
@@ -408,7 +433,8 @@ def main() -> None:
         "rows": published,
         "notes": [
             "Generated from Easy Dune Admin item-data.json via scripts/generate-seed-plan.py.",
-            "Schematic grades 1-5 and T6 rankable gear grades 0-5 are baked into rows (2 listings each).",
+            "Schematic grades 1-5 only for T6 rankable armor/weapons/stillsuits/augments; tools and Tier 1-5 stay quality 0.",
+            "T6 rankable physical gear seeds stock (q0) plus ranks 1-5 (2 listings each).",
             "Commodities use stack_max from the catalog. Absolute durability 100-200 by tier/grade is stored on plan rows for item stats seeding; exchange order wear stays 1.0/1.0.",
             "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story items, social wearables, unusable set packs.",
             "Write actions run through RedBlink's permissioned database:write addon bridge.",

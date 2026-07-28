@@ -7,7 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { bundledSeedPlan } = require("./helpers/harness");
 
-test("seed plan bakes schematic grades and T6 rankable gear grades", () => {
+test("seed plan bakes ranks only for T6 rankable gear and their schematics", () => {
   const plan = bundledSeedPlan();
   assert.ok(plan.rows.length > 1000, "seed should be a full catalog");
   assert.equal(plan.price_multiplier, 5);
@@ -18,17 +18,42 @@ test("seed plan bakes schematic grades and T6 rankable gear grades", () => {
     byTemplate.get(row.template_id).push(row);
   }
 
-  const schematic = [...byTemplate.entries()].find(([, rows]) => rows.every((r) => r.kind === "schematic"));
-  assert.ok(schematic, "expected at least one schematic template");
-  const schematicGrades = schematic[1].map((r) => r.quality_level).sort((a, b) => a - b);
-  assert.deepEqual(schematicGrades, [1, 2, 3, 4, 5], "schematics bake grades 1-5 (no stock q0)");
-  assert.ok(schematic[1].every((r) => r.listings === 2));
+  // Gradeable T6 weapon schematic keeps ranks 1-5.
+  const smgSchematic = byTemplate.get("SMG_Unique_LargeMag_06_Schematic");
+  assert.ok(smgSchematic, "expected SMG unique schematic");
+  assert.deepEqual(
+    smgSchematic.map((r) => r.quality_level).sort((a, b) => a - b),
+    [1, 2, 3, 4, 5],
+    "T6 rankable schematics bake grades 1-5 (no stock q0)"
+  );
+  assert.ok(smgSchematic.every((r) => r.listings === 2));
+
+  // Non-gradeable tool schematics stay at quality 0 (no Rank 1-5).
+  const compactorSchematic = byTemplate.get("StaticCompactor_Unique_Compact_06_Schematic");
+  assert.ok(compactorSchematic, "expected Compact Compactor Mk6 schematic");
+  assert.deepEqual(
+    compactorSchematic.map((r) => r.quality_level),
+    [0],
+    "tool schematics must not be ranked"
+  );
+
+  const omni = plan.rows.filter((r) => r.template_id === "StaticCompactorTier6");
+  assert.ok(omni.length >= 1, "Omni Static Compactor must be listed");
+  assert.ok(omni.every((r) => r.quality_level === 0), "physical tools stay quality 0");
 
   const dunewatcher = plan.rows.filter((r) => r.display_name === "Dunewatcher" && r.kind === "equippable");
   assert.ok(dunewatcher.length >= 6, "Dunewatcher (T6 gradeable weapon) should have stock + ranks");
   assert.deepEqual(dunewatcher.map((r) => r.quality_level).sort((a, b) => a - b), [0, 1, 2, 3, 4, 5]);
   assert.equal(dunewatcher.find((r) => r.quality_level === 5).durability_max, 200);
   assert.equal(dunewatcher.find((r) => r.quality_level === 0).durability_max, 180);
+
+  // No Tier 1-5 row should carry a quality rank.
+  const itemData = require("../data/item-data.json");
+  for (const row of plan.rows) {
+    if (Number(row.quality_level || 0) === 0) continue;
+    const tier = Number(itemData.items[row.template_id]?.tier || 0);
+    assert.ok(tier >= 6, `${row.template_id} q${row.quality_level} must not be below T6`);
+  }
 });
 
 test("commodities use catalog max stacks and durability stays in 100..200", () => {

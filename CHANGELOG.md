@@ -24,6 +24,11 @@ why.
   "Take Solari" payment, and deleted the rest of the stack. Quantity is now
   `GREATEST(item stack, sell-order initial stack)` so a full resource listing
   is bought and paid in one pass.
+- **Tools and Tier 1–5 seeded with fake ranks**: every schematic was forced
+  through quality grades 1–5, so sand compactors, vehicles, and T1–5 gear
+  schematics showed in-game as Rank 1–5. Ranks are limited to catalog-gradeable
+  **T6 armor / weapons / stillsuits / augments** (physical stock q0–5, matching
+  schematics 1–5). Tools and lower tiers stay quality 0.
 - **Server-side console note**: RedBlink's `addonJobs.js` still builds the
   older template-only buyback SQL. In-page / manual sweeps use the fixed math
   immediately; unattended server sweeps need a matching console update.
@@ -63,7 +68,9 @@ Full market seed overhaul from Easy Dune Admin's authoritative
   `data/item-data.json` via `scripts/generate-seed-plan.py` (~4300 unique
   rows / ~8600 listings). Pricing follows EDA's vendor-price × rarity model
   with grade multipliers `[1, 1, 1.25, 1.5, 1.75, 2]`.
-- **Schematic grades 1-5 are baked into the seed** (2 listings per grade).
+- **Schematic grades 1-5 are baked into the seed** for T6 rankable
+  armor/weapons/stillsuits/augments only (2 listings per grade). Tools,
+  vehicles, and Tier 1–5 gear (and their schematics) stay at quality 0.
   The UI checkbox / per-grade / material-listings controls are removed; the
   preview and seed SQL use the plan rows as shipped.
 - **Durability on seeded items** is absolute **100–200** (base 100, inflated

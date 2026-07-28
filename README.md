@@ -21,10 +21,11 @@ them.
   ammunition, consumables, utility items, fuel, and cartography from a
   bundled plan generated from Easy Dune Admin's `item-data.json`, with a
   configurable price multiplier.
-- **Grades baked into the seed**: schematics ship at quality grades 1–5 (2
-  listings each); T6 gradeable armor/weapons/stillsuits/augments ship stock
-  (q0) plus ranks 1–5. Vehicle components and commodities are unranked.
-  Durability **100–200** by tier/grade is written into item `stats`
+- **Grades baked into the seed**: only T6 gradeable armor/weapons/stillsuits/
+  augments ship stock (q0) plus ranks 1–5; their schematics ship at grades
+  1–5 (2 listings each). Tools (including sand compactors), vehicles, and
+  Tier 1–5 gear stay unranked. Vehicle components and commodities are
+  unranked. Durability **100–200** by tier/grade is written into item `stats`
   (`FItemStackAndDurabilityStats`); exchange order wear stays `1.0/1.0`.
 - **Commodities at max stack**: materials use catalog `stack_max` (2 listings
   each). Regenerate with `python3 scripts/generate-seed-plan.py`.
