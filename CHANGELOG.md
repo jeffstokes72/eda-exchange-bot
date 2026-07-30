@@ -34,6 +34,14 @@ why.
   fallback as the in-page sweep. The old panel warning that unattended sweeps
   still used grade-0 / single-unit math was stale; the note now says to upgrade
   older consoles and that the Buyback Sweep Log only covers in-page runs.
+- **Buyback log 0x5/0x6 labeling**: leftover eligible rows are ranked by the
+  same price/id order as the buy loop. Ranks past Max Buys → `0x5`; ranks
+  within the limit that were not bought → `0x6`. Hitting the buy cap no longer
+  mislabels `SKIP LOCKED` rows as max-buys.
+- **Buyback log fallback without `buyback_report`**: vanished eligible listings
+  are only marked `0x0` when a `completion_type = 4` fulfilled-order row
+  confirms a payment; otherwise they stay `0x6` instead of assuming this sweep
+  bought them.
 
 ## 0.12.0 - 2026-07-28
 

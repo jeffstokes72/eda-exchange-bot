@@ -669,13 +669,24 @@ BEGIN
         UPDATE market_buy_log SET result_code = 0, result_label = 'success', detail = 'bought stack ' || rec.actual_stack::text || ' at ' || rec.item_price::text || '/unit (cap ' || rec.max_unit_price::text || ')' WHERE order_id = rec.order_id;
         v_purchased := v_purchased + 1; v_units := v_units + rec.actual_stack; v_solari := v_solari + (rec.item_price * rec.actual_stack);
     END LOOP;
-    -- Eligible rows still marked eligible were not bought: either Max Buys
-    -- truncated the loop, or SKIP LOCKED lost the race to another sweep.
-    IF v_purchased >= ${maxBuys} THEN
-        UPDATE market_buy_log SET result_code = 5, result_label = 'max buys limit', detail = 'eligible but past Max Buys Per Sweep (' || ${maxBuys}::text || ')' WHERE result_code = 0 AND result_label = 'eligible';
-    ELSE
-        UPDATE market_buy_log SET result_code = 6, result_label = 'skipped locked', detail = 'eligible but locked by a concurrent sweep' WHERE result_code = 0 AND result_label = 'eligible';
-    END IF;
+    -- Remaining eligible rows: rank by the same price/id order the FOR loop
+    -- uses. Ranks past Max Buys were never selected (0x5). Ranks within the
+    -- limit that we did not buy were SKIP LOCKED or taken concurrently (0x6).
+    -- Do not use purchased >= maxBuys alone — that mislabels locked rows when
+    -- the sweep also hit the buy cap.
+    UPDATE market_buy_log l
+    SET result_code = CASE WHEN r.rn > ${maxBuys} THEN 5 ELSE 6 END,
+        result_label = CASE WHEN r.rn > ${maxBuys} THEN 'max buys limit' ELSE 'skipped locked' END,
+        detail = CASE
+            WHEN r.rn > ${maxBuys} THEN 'eligible but past Max Buys Per Sweep (' || ${maxBuys}::text || ')'
+            ELSE 'eligible but locked by a concurrent sweep'
+        END
+    FROM (
+        SELECT order_id, ROW_NUMBER() OVER (ORDER BY item_price ASC, order_id ASC) AS rn
+        FROM market_buy_log
+        WHERE result_label IN ('eligible', 'success')
+    ) r
+    WHERE l.order_id = r.order_id AND l.result_label = 'eligible';
     INSERT INTO market_buy_result (purchased, total_units, total_solari, threshold_percent, max_buys) VALUES (v_purchased, v_units, v_solari, ${threshold}, ${maxBuys});
 END $$;
 SELECT json_build_object(
@@ -1014,7 +1025,10 @@ COMMIT;`;
     if (report && Array.isArray(report.log)) {
       return report.log.map((row) => normalizeBuybackLogRow(row)).filter(Boolean);
     }
-    // Bridges that discard execute SELECT rows: diff pre-classify vs remaining.
+    // Bridges that discard execute SELECT rows: diff pre-classify vs remaining,
+    // confirm vanished eligible listings via fulfilled-order audit rows, and
+    // rank leftovers the same way the write SQL does (do not assume vanished
+    // == bought by this sweep).
     let afterEntries = [];
     try {
       afterEntries = await queryBuybackClassification();
@@ -1023,31 +1037,78 @@ COMMIT;`;
     }
     const remaining = new Set(afterEntries.map((entry) => entry.order_id));
     const maxBuys = currentMaxBuys();
-    const boughtCount = beforeEntries.filter((entry) => entry.result_code === 0 && !remaining.has(entry.order_id)).length;
-    const hitLimit = boughtCount >= maxBuys;
-    return beforeEntries.map((entry) => {
-      if (!remaining.has(entry.order_id)) {
-        return normalizeBuybackLogRow({
-          ...entry,
-          result_code: 0,
-          result_label: "success",
-          detail: `bought stack ${entry.stack_size} at ${entry.item_price}/unit (cap ${entry.max_unit_price || "—"})`
-        });
+    const originallyEligible = beforeEntries
+      .filter((entry) => entry.result_code === 0 && entry.result_label === "eligible")
+      .slice()
+      .sort((left, right) => {
+        const priceDelta = Number(left.item_price) - Number(right.item_price);
+        if (priceDelta !== 0) return priceDelta;
+        try {
+          const a = BigInt(left.order_id);
+          const b = BigInt(right.order_id);
+          if (a < b) return -1;
+          if (a > b) return 1;
+          return 0;
+        } catch {
+          return String(left.order_id).localeCompare(String(right.order_id));
+        }
+      });
+    const eligibleRank = new Map(originallyEligible.map((entry, index) => [entry.order_id, index + 1]));
+    const vanishedEligibleIds = originallyEligible
+      .map((entry) => entry.order_id)
+      .filter((orderId) => !remaining.has(orderId) && /^[0-9]+$/.test(orderId));
+
+    const confirmedBought = new Set();
+    if (vanishedEligibleIds.length) {
+      try {
+        const confirmSql = `SELECT original_order_id::text AS order_id
+FROM dune.dune_exchange_fulfilled_orders
+WHERE completion_type = 4
+  AND original_order_id IN (${vanishedEligibleIds.join(",")})`;
+        const confirmResult = await requestBridge("database.query", { query: confirmSql });
+        for (const row of confirmResult?.rows || []) {
+          if (row?.order_id != null) confirmedBought.add(String(row.order_id));
+        }
+      } catch {
+        // Leave unconfirmed; never invent success rows.
       }
-      if (entry.result_code === 0 && entry.result_label === "eligible") {
-        if (hitLimit) {
+    }
+
+    return beforeEntries.map((entry) => {
+      if (remaining.has(entry.order_id)) {
+        if (entry.result_code === 0 && entry.result_label === "eligible") {
+          const rank = eligibleRank.get(entry.order_id) || Number.POSITIVE_INFINITY;
+          if (rank > maxBuys) {
+            return normalizeBuybackLogRow({
+              ...entry,
+              result_code: 5,
+              result_label: "max buys limit",
+              detail: `eligible but past Max Buys Per Sweep (${maxBuys})`
+            });
+          }
           return normalizeBuybackLogRow({
             ...entry,
-            result_code: 5,
-            result_label: "max buys limit",
-            detail: `eligible but past Max Buys Per Sweep (${maxBuys})`
+            result_code: 6,
+            result_label: "skipped locked",
+            detail: "eligible but locked by a concurrent sweep"
+          });
+        }
+        return entry;
+      }
+      if (entry.result_code === 0 && entry.result_label === "eligible") {
+        if (confirmedBought.has(entry.order_id)) {
+          return normalizeBuybackLogRow({
+            ...entry,
+            result_code: 0,
+            result_label: "success",
+            detail: `bought stack ${entry.stack_size} at ${entry.item_price}/unit (cap ${entry.max_unit_price || "—"})`
           });
         }
         return normalizeBuybackLogRow({
           ...entry,
           result_code: 6,
           result_label: "skipped locked",
-          detail: "eligible but locked by a concurrent sweep"
+          detail: "listing gone after sweep without a confirmed payment row (concurrent remove or bridge omitted buyback_report)"
         });
       }
       return entry;

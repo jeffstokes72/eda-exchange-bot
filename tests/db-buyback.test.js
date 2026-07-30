@@ -278,4 +278,32 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     await harness.waitFor(() => harness.autoStatusText().includes("nothing eligible"), { label: "idle auto tick" });
     assert.equal(harness.executedSql().length, writesBefore, "no write may run when the eligibility probe finds nothing");
   });
+
+  await t.test("log ranks leftover eligible past max buys as 0x5, not locked", async () => {
+    // Two eligible ores; Max Buys = 1. The cheaper is bought (0x0); the other
+    // remains and must be 0x5 max buys — not 0x6 skipped locked.
+    db.execSql(DB_NAME, `
+      INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id, quality_level) VALUES
+        (800050, ${EX_A}, 10, 9050, 'TestOre', 0),
+        (800051, ${EX_A}, 10, 9051, 'TestOre', 0);
+      INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, quality_level, item_id) VALUES
+        (700050, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestOre', 100, 0, 800050),
+        (700051, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestOre', 150, 0, 800051);
+      INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES
+        (700050, 10, 100), (700051, 10, 150);`);
+    harness.setValue("maxBuys", 1);
+    const sql = await harness.clickAndCaptureSql("buySweep");
+    assert.ok(sql, `buyback write did not run: ${harness.statusText()}`);
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700050"), "0");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700051"), "1");
+    await harness.waitFor(
+      () => harness.el("buybackLog").textContent.includes("max buys limit"),
+      { label: "max-buys log label" }
+    );
+    const logText = harness.el("buybackLog").textContent;
+    assert.match(logText, /0x0/);
+    assert.match(logText, /0x5/);
+    assert.match(logText, /max buys limit/);
+    assert.doesNotMatch(logText, /700051[\s\S]*skipped locked/);
+  });
 });

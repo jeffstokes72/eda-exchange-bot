@@ -111,8 +111,8 @@ test("buyback SQL: payment records are per-unit, never-expiring, seller-owned", 
   assert.match(sql, /WHEN o\.item_price > p\.max_unit_price THEN 1/);
   assert.match(sql, /WHEN p\.template_id IS NULL THEN 2/);
   assert.match(sql, /result_label = 'success'/);
-  assert.match(sql, /result_label = 'max buys limit'/);
-  assert.match(sql, /result_label = 'skipped locked'/);
+  assert.match(sql, /result_label = CASE WHEN r\.rn > 500 THEN 'max buys limit' ELSE 'skipped locked' END/);
+  assert.match(sql, /ROW_NUMBER\(\) OVER \(ORDER BY item_price ASC, order_id ASC\)/);
   assert.match(sql, /buyback_report/);
 });
 
@@ -125,6 +125,7 @@ test("buyback SQL: changing threshold and max buys is reflected", async () => {
   assert.ok(sql.includes("('TestRifle',3,4000)"), "TestRifle q3: 8000 * 50% = 4000");
   assert.match(sql, /LIMIT 25 FOR UPDATE OF o, s SKIP LOCKED LOOP/);
   assert.match(sql, /VALUES \(v_purchased, v_units, v_solari, 50, 25\)/);
+  assert.match(sql, /CASE WHEN r\.rn > 25 THEN 5 ELSE 6 END/);
 });
 
 test("buyback classify SQL assigns price-too-high and no-reference codes", async () => {
