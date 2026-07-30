@@ -28,6 +28,12 @@ why.
   `GREATEST(items.stack_size, sell_orders.initial_stack_size)` quantity.
   Separate stacks are separate orders and are evaluated independently
   (cheapest first, up to Max Buys Per Sweep).
+- **Server-side schedule is no longer behind on pricing**: RedBlink's
+  `addonJobs.js` (2026-07-29 "align scheduled buybacks with EDA pricing") now
+  uses the same per-grade caps, full-stack quantity, and nearest-grade
+  fallback as the in-page sweep. The old panel warning that unattended sweeps
+  still used grade-0 / single-unit math was stale; the note now says to upgrade
+  older consoles and that the Buyback Sweep Log only covers in-page runs.
 
 ## 0.12.0 - 2026-07-28
 

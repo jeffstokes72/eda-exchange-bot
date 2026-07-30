@@ -57,9 +57,9 @@ them.
   something to buy. Requires the `scheduler:server` permission to be approved.
   The addon feature-detects console support and hides the section on older
   consoles. Seed and unsafe-cleanup are not console scheduler jobs yet.
-  Because the console builds that SQL itself, server-side sweeps do not include
-  this release's per-grade caps or full-stack purchases until RedBlink updates
-  `console/api/src/addonJobs.js`; use the in-page sweep when that matters.
+  Current RedBlink builds align scheduled buyback pricing/stacks with this
+  addon's in-page logic (per-grade caps, full stacks, nearest-grade fallback);
+  the in-page Buyback Sweep Log still only covers sweeps run from this page.
 - **Auto market ops (in-page)**: optional schedulers run buyback, NPC reseed,
   and unsafe-listing cleanup on intervals while the addon page is open. The
   unattended reseed always replaces the bot's own listings for the selected
