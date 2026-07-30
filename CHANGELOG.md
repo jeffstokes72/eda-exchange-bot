@@ -21,19 +21,29 @@ why.
   sweep also returns a `buyback_report` JSON blob; when the bridge discards
   execute SELECT rows the UI falls back to a pre/post classify diff.
 
+### Fixed
+
+- **Buyback stack quantity overpaid after partial sales**: quantity used
+  `GREATEST(items.stack_size, sell_orders.initial_stack_size)`, so a leftover
+  of 1 unit on a listing that originally had 500 still paid for 500. Quantity
+  is now `COALESCE(items.stack_size, sell_orders.initial_stack_size)` —
+  remaining inventory when the item row exists, otherwise the list-time size.
+  Full unsold stacks still pay in one pass because both fields match.
+
 ### Clarified
 
 - **Stacks / multi-stacks**: `item_price` is per-unit; a stacked commodity
-  listing is bought as one order for the full
-  `GREATEST(items.stack_size, sell_orders.initial_stack_size)` quantity.
+  listing is bought as one order for the remaining
+  `COALESCE(items.stack_size, sell_orders.initial_stack_size)` quantity.
   Separate stacks are separate orders and are evaluated independently
   (cheapest first, up to Max Buys Per Sweep).
 - **Server-side schedule is no longer behind on pricing**: RedBlink's
-  `addonJobs.js` (2026-07-29 "align scheduled buybacks with EDA pricing") now
-  uses the same per-grade caps, full-stack quantity, and nearest-grade
-  fallback as the in-page sweep. The old panel warning that unattended sweeps
-  still used grade-0 / single-unit math was stale; the note now says to upgrade
-  older consoles and that the Buyback Sweep Log only covers in-page runs.
+  `addonJobs.js` (2026-07-29 "align scheduled buybacks with EDA pricing") uses
+  the same per-grade caps and nearest-grade fallback as the in-page sweep. If
+  a console build still uses `GREATEST(item, initial)` for quantity, unattended
+  sweeps can overpay leftovers after partial sales until that console matches
+  `COALESCE(items.stack_size, sell_orders.initial_stack_size)`. The Buyback
+  Sweep Log only covers in-page runs.
 - **Buyback log 0x5/0x6 labeling**: leftover eligible rows are ranked by the
   same price/id order as the buy loop. Ranks past Max Buys → `0x5`; ranks
   within the limit that were not bought → `0x6`. Hitting the buy cap no longer

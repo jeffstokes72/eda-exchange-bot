@@ -36,9 +36,12 @@ them.
   (not a live market average — player posts cannot lower the cap). A listing's
   grade is the higher of the exchange order's and the backing item's
   `quality_level`, and listings at a grade the plan does not seed are capped by
-  the nearest seeded grade below them rather than being skipped. Whole stacks
-  are bought in one pass; multiple stacks of the same commodity are separate
-  orders. An empty buy plan is a no-op rather than a malformed `VALUES` clause.
+  the nearest seeded grade below them rather than being skipped. Quantity is
+  the remaining `items.stack_size` (falling back to `initial_stack_size` only
+  when the item row is missing), so unsold full stacks pay in one pass and
+  leftovers after partial sales are not overpaid. Multiple stacks of the same
+  commodity are separate orders. An empty buy plan is a no-op rather than a
+  malformed `VALUES` clause.
   Seller payment entries use EDA's fixes: per-unit `item_price` and the
   never-expires sentinel expiration (`999999999`) so the game server's expire
   proc cannot purge an uncollected "Take Solari" payment.

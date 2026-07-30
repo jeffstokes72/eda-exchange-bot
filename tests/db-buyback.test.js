@@ -177,13 +177,12 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     );
   });
 
-  await t.test("manual sweep buys the full resource stack, even when items.stack_size is stale at 1", async () => {
-    // Player resource listings can leave items.stack_size = 1 while
-    // sell_orders.initial_stack_size holds the real quantity. COALESCE alone
-    // would pay for 1 unit and delete the rest unpaid.
+  await t.test("manual sweep pays the full matching resource stack", async () => {
+    // Unsold resource listings keep items.stack_size in sync with
+    // initial_stack_size; pay the whole stack in one pass.
     db.execSql(DB_NAME, `
       INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id, quality_level) VALUES
-        (800020, ${EX_A}, 1, 9020, 'TestOre', 0);
+        (800020, ${EX_A}, 500, 9020, 'TestOre', 0);
       INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, quality_level, item_id)
       VALUES (700020, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestOre', 200, 0, 800020);
       INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (700020, 500, 200);`);
@@ -199,6 +198,50 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     assert.equal(
       db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`),
       String(Number(balanceBefore) - 200 * 500)
+    );
+  });
+
+  await t.test("manual sweep pays only remaining units after a partial sale", async () => {
+    // After buyers take most of a stack, items.stack_size holds the leftover
+    // while initial_stack_size stays at the original list size. Paying
+    // GREATEST(item, initial) would overpay; prefer remaining item quantity.
+    db.execSql(DB_NAME, `
+      INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id, quality_level) VALUES
+        (800021, ${EX_A}, 1, 9021, 'TestOre', 0);
+      INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, quality_level, item_id)
+      VALUES (700021, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestOre', 200, 0, 800021);
+      INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (700021, 500, 200);`);
+    const balanceBefore = db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`);
+    const sql = await harness.clickAndCaptureSql("buySweep");
+    assert.ok(sql, `buyback write did not run: ${harness.statusText()}`);
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700021"), "0");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.items WHERE id = 800021"), "0");
+    assert.equal(
+      db.queryOne(DB_NAME, "SELECT f.stack_size::text FROM dune.dune_exchange_fulfilled_orders f WHERE f.original_order_id = 700021"),
+      "1"
+    );
+    assert.equal(
+      db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`),
+      String(Number(balanceBefore) - 200 * 1)
+    );
+  });
+
+  await t.test("manual sweep falls back to initial_stack_size when the item row is missing", async () => {
+    db.execSql(DB_NAME, `
+      INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, quality_level, item_id)
+      VALUES (700022, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestOre', 200, 0, NULL);
+      INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (700022, 250, 200);`);
+    const balanceBefore = db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`);
+    const sql = await harness.clickAndCaptureSql("buySweep");
+    assert.ok(sql, `buyback write did not run: ${harness.statusText()}`);
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700022"), "0");
+    assert.equal(
+      db.queryOne(DB_NAME, "SELECT f.stack_size::text FROM dune.dune_exchange_fulfilled_orders f WHERE f.original_order_id = 700022"),
+      "250"
+    );
+    assert.equal(
+      db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`),
+      String(Number(balanceBefore) - 200 * 250)
     );
   });
 
