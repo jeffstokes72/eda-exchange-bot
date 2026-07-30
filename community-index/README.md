@@ -11,28 +11,17 @@ docs.
 `index.json` here was refreshed from `Red-Blink/dune-docker-addons@main` on
 2026-07-30 with only the `eda-exchange-bot` entry and `updatedAt` changed.
 
-## Release checklist (this repo first)
+## Release checklist (done for 0.13.0)
 
-1. Confirm every current-version field is **0.13.0**:
-   - `addon.json`
-   - `package.json` / `package-lock.json`
-   - `web/market-seed-plan.json` (`panel_version`)
-   - `scripts/generate-seed-plan.py` (`panel_version`)
-   - `CHANGELOG.md` top section
-2. Create and push the matching tag (**with** the `v` prefix):
-
-   ```bash
-   git tag v0.13.0
-   git push origin v0.13.0
-   ```
-
-3. Wait for the Release workflow to upload
-   `eda-exchange-bot-0.13.0.zip` and `.sha256`:
+1. Current-version fields are **0.13.0** (`addon.json`, package lock, seed-plan
+   `panel_version`, generator stamp, changelog).
+2. Tag `v0.13.0` was pushed; the Release workflow built
+   `eda-exchange-bot-0.13.0.zip` with its `.sha256` asset:
    https://github.com/jeffstokes72/eda-exchange-bot/releases/tag/v0.13.0
-4. Copy that checksum into `eda-exchange-bot.json` `sha256`. Do **not** open
-   the community-index PR while `sha256` is empty — the console refuses
-   installs without a matching checksum. Re-verify with
-   `sha256sum eda-exchange-bot-0.13.0.zip` if the archive is ever rebuilt.
+3. Checksum
+   `ca1d290bdd2795009a395ac26bb921efeede79bb445a375297f30910396ab2e0` is filled
+   into `eda-exchange-bot.json` `sha256` from that published asset. Re-verify
+   with `sha256sum eda-exchange-bot-0.13.0.zip` if the archive is ever rebuilt.
 
 ## Submitting to Red-Blink/dune-docker-addons
 
