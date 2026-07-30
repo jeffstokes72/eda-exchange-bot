@@ -26,11 +26,23 @@ function exchangeRows() {
   return [exchangeRow({ exchange_id: EX_A, access_point_count: "1" })];
 }
 
-// First column of the first result row (market_buy_result.purchased) from a
-// sweep's psql -A -t output.
+// Purchased count from a sweep's psql -A -t output. Prefer the buyback_report
+// JSON column (current), fall back to the legacy market_buy_result row.
 function purchasedCount(sessionResult) {
   const lines = sessionResult.stdout.split("\n").filter((line) => line.length > 0);
   assert.ok(lines.length >= 1, `sweep produced no result rows:\n${sessionResult.stdout}\n${sessionResult.stderr}`);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        const report = JSON.parse(trimmed);
+        const purchased = report?.result?.purchased;
+        if (purchased != null) return Number(purchased);
+      } catch {
+        /* keep looking */
+      }
+    }
+  }
   return Number(lines[0].split("|")[0]);
 }
 

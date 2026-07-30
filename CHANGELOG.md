@@ -4,6 +4,31 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.13.0 - 2026-07-30
+
+### Added
+
+- **Buyback Sweep Log** on the addon page: every manual or auto buyback attempt
+  (and a dry-run Refresh Log) classifies each player sell listing on the
+  selected exchange with a stable hex result code:
+  - `0x0` success (bought; dry-run shows eligible as `0x0` / "eligible")
+  - `0x1` price too high (ask/unit above threshold % of the seeded grade cap)
+  - `0x2` no reference price (template not in the seed plan — there is **no
+    live market average**; caps come only from seeded NPC prices)
+  - `0x3` invalid price / `0x4` invalid stack
+  - `0x5` max buys limit / `0x6` skipped locked (concurrent sweep)
+  Log batches persist in `localStorage` for the browser session. The write
+  sweep also returns a `buyback_report` JSON blob; when the bridge discards
+  execute SELECT rows the UI falls back to a pre/post classify diff.
+
+### Clarified
+
+- **Stacks / multi-stacks**: `item_price` is per-unit; a stacked commodity
+  listing is bought as one order for the full
+  `GREATEST(items.stack_size, sell_orders.initial_stack_size)` quantity.
+  Separate stacks are separate orders and are evaluated independently
+  (cheapest first, up to Max Buys Per Sweep).
+
 ## 0.12.0 - 2026-07-28
 
 ### Fixed

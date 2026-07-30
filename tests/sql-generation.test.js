@@ -106,6 +106,14 @@ test("buyback SQL: payment records are per-unit, never-expiring, seller-owned", 
   // Max buys limit applies, and selected orders are locked so concurrent
   // sweeps (other tabs/admins) skip them instead of buying them twice.
   assert.match(sql, /LIMIT 500 FOR UPDATE OF o, s SKIP LOCKED LOOP/);
+  // Per-listing outcome log with stable error codes.
+  assert.match(sql, /CREATE TEMP TABLE market_buy_log/);
+  assert.match(sql, /WHEN o\.item_price > p\.max_unit_price THEN 1/);
+  assert.match(sql, /WHEN p\.template_id IS NULL THEN 2/);
+  assert.match(sql, /result_label = 'success'/);
+  assert.match(sql, /result_label = 'max buys limit'/);
+  assert.match(sql, /result_label = 'skipped locked'/);
+  assert.match(sql, /buyback_report/);
 });
 
 test("buyback SQL: changing threshold and max buys is reflected", async () => {
@@ -117,4 +125,29 @@ test("buyback SQL: changing threshold and max buys is reflected", async () => {
   assert.ok(sql.includes("('TestRifle',3,4000)"), "TestRifle q3: 8000 * 50% = 4000");
   assert.match(sql, /LIMIT 25 FOR UPDATE OF o, s SKIP LOCKED LOOP/);
   assert.match(sql, /VALUES \(v_purchased, v_units, v_solari, 50, 25\)/);
+});
+
+test("buyback classify SQL assigns price-too-high and no-reference codes", async () => {
+  const harness = await harnessWithExchange();
+  const queries = [];
+  harness.onQuery = async ({ query }) => {
+    queries.push(query);
+    if (String(query).includes("known_exchanges")) return { rows: [exchangeRow({ exchange_id: EXCHANGE_ID })] };
+    return {
+      rows: [
+        { order_id: "1", template_id: "TestOre", quality_level: "0", item_price: "250", stack_size: "100", max_unit_price: "300", result_code: "0", result_label: "eligible", detail: "ask 250 <= cap 300" },
+        { order_id: "2", template_id: "TestOre", quality_level: "0", item_price: "400", stack_size: "100", max_unit_price: "300", result_code: "1", result_label: "price too high", detail: "ask 400 > cap 300" },
+        { order_id: "3", template_id: "UnknownThing", quality_level: "0", item_price: "10", stack_size: "1", max_unit_price: "0", result_code: "2", result_label: "no reference price", detail: "template not in seed plan" }
+      ]
+    };
+  };
+  harness.el("refreshBuybackLog").click();
+  await harness.waitFor(() => harness.el("buybackLog").textContent.includes("0x1"), { label: "buyback log dry-run" });
+  const classifySql = queries.find((query) => query.includes("result_code") && query.includes("price too high"));
+  assert.ok(classifySql, "dry-run must run the classify query");
+  assert.match(classifySql, /WHEN o\.item_price > p\.max_unit_price THEN 1/);
+  assert.match(classifySql, /WHEN p\.template_id IS NULL THEN 2/);
+  assert.match(harness.el("buybackLog").textContent, /price too high/);
+  assert.match(harness.el("buybackLog").textContent, /no reference price/);
+  assert.match(harness.el("buybackLog").textContent, /0x0/);
 });

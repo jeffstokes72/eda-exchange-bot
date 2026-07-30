@@ -29,3 +29,9 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; color: #e8dcc5;
 .button-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .filters { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(160px, 260px); gap: 12px; }
 .muted { color: #bba98b; }
+.buyback-log { display: grid; gap: 14px; margin-top: 12px; max-height: 28rem; overflow: auto; border: 1px solid rgba(214, 164, 77, .25); padding: 10px; background: rgba(0, 0, 0, .25); }
+.buyback-log-batch h3 { margin: 0 0 6px; font-size: 15px; }
+.buyback-log-batch table { margin-top: 8px; font-size: 13px; }
+.buyback-log-batch tr.ok td:first-child { color: #b7e0a4; }
+.buyback-log-batch tr.error td:first-child { color: #ffb4aa; }
+.buyback-log code { color: #ffe7ad; }

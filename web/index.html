@@ -63,6 +63,18 @@
       <div id="autoStatus" class="status">Auto market ops are off.</div>
     </section>
 
+    <section>
+      <h2>Buyback Sweep Log</h2>
+      <p>Every manual or auto buyback attempt (and dry-run refresh) classifies each player sell listing on the selected exchange. There is <strong>no live market average</strong> — caps are threshold % of the seeded NPC price at that grade. A full stack is one listing (paid per-unit × stack); multiple stacks are separate orders.</p>
+      <div class="button-row">
+        <button id="refreshBuybackLog" type="button" class="secondary">Refresh Log (dry-run)</button>
+        <button id="clearBuybackLog" type="button" class="secondary">Clear Log</button>
+      </div>
+      <p class="muted">Codes: <code>0x0</code> success, <code>0x1</code> price too high, <code>0x2</code> no reference price, <code>0x3</code> invalid price, <code>0x4</code> invalid stack, <code>0x5</code> max buys limit, <code>0x6</code> skipped locked.</p>
+      <div id="buybackLogMeta" class="status">No buyback sweep attempts logged yet.</div>
+      <div id="buybackLog" class="buyback-log"></div>
+    </section>
+
     <section id="serverScheduleSection" hidden>
       <h2>Server-Side Buyback Schedule</h2>
       <p>The console runs the buyback sweep unattended, so this page does not need to stay open. Scheduled and manual server-side runs use the <strong>saved</strong> values below with the exchange selected in Exchange Controls at save time; save the schedule before using Run Sweep Now. Every run probes eligibility with a read-only query first and takes a backup only when there is something to buy. All SQL is built by the console from the bundled seed plan. <strong>Seed and unsafe cleanup</strong> are not yet runnable by the console scheduler — enable the in-page auto seed / auto cleanup checkboxes above for those while this page stays open.</p>

@@ -37,10 +37,14 @@ them.
   grade is the higher of the exchange order's and the backing item's
   `quality_level`, and listings at a grade the plan does not seed are capped by
   the nearest seeded grade below them rather than being skipped. Whole stacks
-  are bought in one pass. An empty buy plan is a no-op rather than a malformed
-  `VALUES` clause. Seller payment entries use EDA's fixes: per-unit
-  `item_price` and the never-expires sentinel expiration (`999999999`) so the
-  game server's expire proc cannot purge an uncollected "Take Solari" payment.
+  are bought in one pass; multiple stacks of the same commodity are separate
+  orders. An empty buy plan is a no-op rather than a malformed `VALUES` clause.
+  Seller payment entries use EDA's fixes: per-unit `item_price` and the
+  never-expires sentinel expiration (`999999999`) so the game server's expire
+  proc cannot purge an uncollected "Take Solari" payment.
+- **Buyback Sweep Log**: in-page log of every attempted listing with result
+  codes (`0x0` success, `0x1` price too high, `0x2` no reference price, …)
+  plus a dry-run Refresh Log for diagnosing why posts are not bought.
 - **Unattended buyback (server-side schedule)**: on consoles with addon
   scheduler support
   ([Red-Blink/dune-awakening-selfhost-docker#103](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/103)),

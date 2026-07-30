@@ -33,10 +33,10 @@ async function dbBackedHarness() {
   const harness = await createHarness();
   harness.onExecute = async ({ query }) => { db.execSql(DB_NAME, query); return { rows: [] }; };
   harness.onQuery = async ({ query }) => {
-    // The auto-buyback eligibility probe runs read-only against the real DB;
-    // everything else is the exchange-discovery query.
-    if (query.includes("eligible_orders")) return { rows: db.queryObjects(DB_NAME, query) };
-    return { rows: exchangeRows() };
+    // Exchange discovery stays mocked; eligibility probes and the buyback
+    // classify/log query run read-only against the real DB.
+    if (String(query || "").includes("known_exchanges")) return { rows: exchangeRows() };
+    return { rows: db.queryObjects(DB_NAME, query) };
   };
   await harness.loadExchangesWithRows(exchangeRows());
   return harness;
@@ -143,6 +143,18 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
       db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`),
       String(9000000000000 - 29000)
     );
+
+    // Sweep log classifies each attempted listing with stable error codes.
+    await harness.waitFor(
+      () => harness.el("buybackLog").textContent.includes("0x0") && harness.el("buybackLog").textContent.includes("0x1"),
+      { label: "buyback sweep log" }
+    );
+    const logText = harness.el("buybackLog").textContent;
+    assert.match(logText, /success/);
+    assert.match(logText, /price too high/);
+    assert.match(logText, /no reference price/);
+    assert.match(logText, /TestOre/);
+    assert.match(logText, /UnknownThing/);
   });
 
   await t.test("manual sweep buys grade listings at true 60% of seeded grade price", async () => {
