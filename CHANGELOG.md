@@ -52,6 +52,12 @@ why.
   are only marked `0x0` when a `completion_type = 4` fulfilled-order row
   confirms a payment; otherwise they stay `0x6` instead of assuming this sweep
   bought them.
+- **Release / community-index packaging**: version fields aligned to **0.13.0**
+  (`addon.json`, `package.json` / lockfile, seed-plan `panel_version`, staged
+  community-index manifest). Release docs now match RedBlink's template:
+  tag `v0.13.0`, pin the release zip (not GitHub source archives), fill
+  `sha256` from that asset, and update `addons/eda-exchange-bot.json` in place
+  without overwriting other catalog entries.
 
 ## 0.12.0 - 2026-07-28
 

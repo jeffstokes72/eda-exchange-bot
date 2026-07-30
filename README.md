@@ -215,17 +215,37 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.12.0
-   git push origin v0.12.0
+   git tag v0.13.0
+   git push origin v0.13.0
    ```
 
-GitHub Actions validates the addon, packages it, creates the GitHub Release,
-and uploads the zip plus its SHA-256 checksum.
+The tag **must** be `v` + `addon.json.version` (for example `v0.13.0`). The
+release workflow refuses a mismatched tag. GitHub Actions validates the addon,
+packages `addon.json` + `web/`, creates the GitHub Release, and uploads:
+
+```text
+eda-exchange-bot-0.13.0.zip
+eda-exchange-bot-0.13.0.zip.sha256
+```
+
+Do not use GitHub's automatic source archives as the install package.
 
 ## Submit To The Community Index
 
-When ready for public discovery in Dune Docker Console, open a pull request to
-[Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)
-adding `addons/eda-exchange-bot.json` and updating `index.json`. Lifecycle
-status (`active`, `deprecated`, `unsupported`, `removed`, `blocked`) is managed
-by the community index, not this repository's `addon.json`.
+Staging copies for the catalog PR live in `community-index/` (see that
+README). Per [RedBlink publishing docs](https://github.com/Red-Blink/dune-docker-addon-template/blob/main/docs/publishing.md):
+
+1. Publish the `v0.13.0` release first and copy the release asset's SHA-256
+   into `community-index/eda-exchange-bot.json`.
+2. Open a pull request to
+   [Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)
+   that updates **only**:
+   - `addons/eda-exchange-bot.json` (same file in place — do not add a new
+     manifest per release)
+   - the `eda-exchange-bot` entry and `updatedAt` in `index.json` (do not
+     overwrite other addons' versions)
+3. Pin `downloadUrl` to the exact release asset, not `releases/latest/...`.
+
+Lifecycle status (`active`, `deprecated`, `unsupported`, `removed`,
+`blocked`) is managed by the community index, not this repository's
+`addon.json`.
