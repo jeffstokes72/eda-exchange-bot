@@ -4,6 +4,16 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.13.2 - 2026-08-03
+
+### Fixed
+
+- **Buyback never purchases NPC / bot sell stock**: player-sell filtering is now
+  null-safe and shared across the write sweep, eligibility probe, and classify
+  log — `COALESCE(is_npc_order, FALSE) = FALSE` and
+  `owner_id IS DISTINCT FROM` the Revy bot. Under-cap NPC listings and
+  mistagged bot-owned rows are left untouched.
+
 ## 0.13.1 - 2026-08-03
 
 ### Fixed
