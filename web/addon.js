@@ -516,19 +516,21 @@ COMMIT;`;
   // caps come only from the seeded plan row at this grade.
   const BUYBACK_ORDER_GRADE_SQL = "LEAST(GREATEST(COALESCE(o.quality_level, 0), COALESCE(i.quality_level, 0), 0), 5)";
 
-  // Remaining quantity for a sell listing. items.stack_size is what the
-  // exchange inventory still holds (and what we delete); initial_stack_size is
-  // only the size at list time and must not be preferred after partial sales
-  // (GREATEST overpaid leftovers). Fall back to initial only when the item row
-  // is missing. Full unsold stacks keep matching item/initial counts, so this
-  // still pays the whole stack in one pass.
-  const BUYBACK_STACK_SQL = "COALESCE(i.stack_size, s.initial_stack_size)";
+  // Listed stack quantity. Eligibility is always on the per-unit ask (qty 1):
+  // if that unit price is under the cap, buy the whole stack in one pass —
+  // never pay for a single unit while deleting a multi-unit listing. Player
+  // resource listings often keep the real size on sell_orders.initial_stack_size
+  // while items.stack_size stays 1, so take the larger of the two positive
+  // counts. Fall back through COALESCE zeros so a missing item row still uses
+  // initial_stack_size.
+  const BUYBACK_STACK_SQL = "GREATEST(COALESCE(i.stack_size, 0), COALESCE(s.initial_stack_size, 0))";
 
   // Buyback eligibility shared by the write sweep, diagnostics, and the
   // read-only probe: never buy non-positive prices or empty stacks (a negative
   // player listing would otherwise match <= cap and credit the bot). Cap is
   // already threshold% of the seeded price at this exact grade, so no further
-  // grade multiplier is applied in SQL.
+  // grade multiplier is applied in SQL. Price check is per-unit (qty 1) only;
+  // stack size is not part of the cap math.
   const BUYBACK_ELIGIBLE_PREDICATE = `o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price <= p.max_unit_price`;
 
   // Plan lookup for one listing: the cap for its own grade when the plan seeds
@@ -570,7 +572,7 @@ COMMIT;`;
         WHEN o.item_price <= 0 THEN 'item_price must be > 0'
         WHEN ${BUYBACK_STACK_SQL} <= 0 THEN 'stack size must be > 0'
         WHEN o.item_price > p.max_unit_price THEN 'ask ' || o.item_price::text || ' > cap ' || p.max_unit_price::text
-        ELSE 'ask ' || o.item_price::text || ' <= cap ' || p.max_unit_price::text || '; stack ' || (${BUYBACK_STACK_SQL})::text
+        ELSE 'ask ' || o.item_price::text || '/unit <= cap ' || p.max_unit_price::text || '; buy whole stack ' || (${BUYBACK_STACK_SQL})::text
     END`;
 
   // Buyback plan: one cap per (template_id, quality_level) = threshold% of that
@@ -658,9 +660,9 @@ BEGIN
         -- price (the game multiplies by stack_size itself) and expiration is
         -- the never-expires sentinel so the game server's expire proc cannot
         -- purge an uncollected payment (EDA "items eaten without payment" fix).
-        -- actual_stack is the remaining quantity (see BUYBACK_STACK_SQL): a
-        -- full 500-unit listing pays 500; a leftover after partial sales pays
-        -- only what items.stack_size still holds.
+        -- actual_stack is the whole listed stack (see BUYBACK_STACK_SQL). The
+        -- per-unit ask already qualified (qty 1); pay for every unit in the
+        -- listing in this one sweep.
         INSERT INTO dune.dune_exchange_orders (exchange_id, access_point_id, owner_id, template_id, expiration_time, durability_cur, durability_max, item_price, category_mask, category_depth, is_npc_order) VALUES (rec.exchange_id, rec.access_point_id, rec.seller_actor_id, rec.template_id, ${PAYMENT_SENTINEL_EXPIRY}, 1.0, 1.0, rec.item_price, 0, 0, FALSE) RETURNING id INTO v_log_order_id;
         INSERT INTO dune.dune_exchange_fulfilled_orders (order_id, source_order_id, completion_type, stack_size, original_order_id) VALUES (v_log_order_id, NULL, 4, rec.actual_stack, rec.order_id);
         UPDATE dune.dune_exchange_users SET solari_balance = solari_balance - (rec.item_price * rec.actual_stack) WHERE owner_id = v_owner_id;

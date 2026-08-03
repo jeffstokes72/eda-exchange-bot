@@ -201,10 +201,10 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     );
   });
 
-  await t.test("manual sweep pays only remaining units after a partial sale", async () => {
-    // After buyers take most of a stack, items.stack_size holds the leftover
-    // while initial_stack_size stays at the original list size. Paying
-    // GREATEST(item, initial) would overpay; prefer remaining item quantity.
+  await t.test("when the unit ask qualifies, buyback purchases the whole stack even if items.stack_size is 1", async () => {
+    // Eligibility is per-unit (qty 1). Player resource listings can leave
+    // items.stack_size = 1 while initial_stack_size holds the listed quantity;
+    // once the unit ask is under the cap, pay for the whole stack in one pass.
     db.execSql(DB_NAME, `
       INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id, quality_level) VALUES
         (800021, ${EX_A}, 1, 9021, 'TestOre', 0);
@@ -218,11 +218,11 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.items WHERE id = 800021"), "0");
     assert.equal(
       db.queryOne(DB_NAME, "SELECT f.stack_size::text FROM dune.dune_exchange_fulfilled_orders f WHERE f.original_order_id = 700021"),
-      "1"
+      "500"
     );
     assert.equal(
       db.queryOne(DB_NAME, `SELECT solari_balance::text FROM dune.dune_exchange_users WHERE owner_id = ${botId}`),
-      String(Number(balanceBefore) - 200 * 1)
+      String(Number(balanceBefore) - 200 * 500)
     );
   });
 

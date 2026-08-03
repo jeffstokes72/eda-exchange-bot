@@ -4,6 +4,17 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.13.1 - 2026-08-03
+
+### Fixed
+
+- **Buyback buys the whole stack when the unit ask qualifies**: eligibility is
+  the per-unit (`qty 1`) ask versus the seeded grade cap. Quantity is again
+  `GREATEST(items.stack_size, sell_orders.initial_stack_size)` so a listing
+  whose item row still shows `stack_size = 1` while `initial_stack_size` holds
+  the real listed count is paid and removed as one full stack — never a
+  single-unit "Take Solari" for a multi-unit listing.
+
 ## 0.13.0 - 2026-07-30
 
 ### Added
@@ -32,17 +43,16 @@ why.
 
 ### Clarified
 
-- **Stacks / multi-stacks**: `item_price` is per-unit; a stacked commodity
-  listing is bought as one order for the remaining
-  `COALESCE(items.stack_size, sell_orders.initial_stack_size)` quantity.
+- **Stacks / multi-stacks**: `item_price` is per-unit; if that qty-1 ask is
+  under the cap, the listing is bought as one order for the whole
+  `GREATEST(items.stack_size, sell_orders.initial_stack_size)` quantity.
   Separate stacks are separate orders and are evaluated independently
   (cheapest first, up to Max Buys Per Sweep).
 - **Server-side schedule is no longer behind on pricing**: RedBlink's
   `addonJobs.js` (2026-07-29 "align scheduled buybacks with EDA pricing") uses
-  the same per-grade caps and nearest-grade fallback as the in-page sweep. If
-  a console build still uses `GREATEST(item, initial)` for quantity, unattended
-  sweeps can overpay leftovers after partial sales until that console matches
-  `COALESCE(items.stack_size, sell_orders.initial_stack_size)`. The Buyback
+  the same per-grade caps, whole-stack quantity, and nearest-grade fallback as
+  the in-page sweep. Older consoles may still use grade-0 base caps /
+  single-unit stacks — upgrade if unattended buys look wrong. The Buyback
   Sweep Log only covers in-page runs.
 - **Buyback log 0x5/0x6 labeling**: leftover eligible rows are ranked by the
   same price/id order as the buy loop. Ranks past Max Buys → `0x5`; ranks

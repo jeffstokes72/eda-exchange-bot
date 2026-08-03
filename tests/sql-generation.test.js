@@ -91,12 +91,12 @@ test("buyback SQL: payment records are per-unit, never-expiring, seller-owned", 
   // Sweep only touches the selected exchange and player orders.
   assert.ok(sql.includes(`o.exchange_id = ${EXCHANGE_ID} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id`));
   // Reject non-positive prices/stacks; cap is already grade-specific so the
-  // predicate compares item_price to max_unit_price directly. Stack quantity
-  // prefers remaining items.stack_size (partial-sale safe) and falls back to
-  // initial_stack_size only when the item row is missing.
-  assert.match(sql, /o\.item_price > 0 AND COALESCE\(i\.stack_size, s\.initial_stack_size\) > 0 AND o\.item_price <= p\.max_unit_price/);
-  assert.match(sql, /COALESCE\(i\.stack_size, s\.initial_stack_size\) AS actual_stack/);
-  assert.ok(!sql.includes("GREATEST(COALESCE(i.stack_size"), "must not GREATEST item/initial (overpays leftovers)");
+  // predicate compares item_price to max_unit_price directly (qty 1 / per-unit).
+  // When that unit ask qualifies, quantity is the whole listed stack via
+  // GREATEST(item, sell_order) so a resource listing is bought in full.
+  assert.match(sql, /o\.item_price > 0 AND GREATEST\(COALESCE\(i\.stack_size, 0\), COALESCE\(s\.initial_stack_size, 0\)\) > 0 AND o\.item_price <= p\.max_unit_price/);
+  assert.match(sql, /GREATEST\(COALESCE\(i\.stack_size, 0\), COALESCE\(s\.initial_stack_size, 0\)\) AS actual_stack/);
+  assert.ok(!/\bCOALESCE\(i\.stack_size, s\.initial_stack_size\) AS actual_stack/.test(sql), "must buy whole stack, not COALESCE remaining-only");
   // Grade comes from whichever of the order/item rows carries it: the order
   // column is NOT NULL DEFAULT 0, so COALESCE alone would never see an item
   // rank. The plan lookup then prefers the listing's own grade and otherwise

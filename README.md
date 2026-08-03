@@ -36,12 +36,12 @@ them.
   (not a live market average — player posts cannot lower the cap). A listing's
   grade is the higher of the exchange order's and the backing item's
   `quality_level`, and listings at a grade the plan does not seed are capped by
-  the nearest seeded grade below them rather than being skipped. Quantity is
-  the remaining `items.stack_size` (falling back to `initial_stack_size` only
-  when the item row is missing), so unsold full stacks pay in one pass and
-  leftovers after partial sales are not overpaid. Multiple stacks of the same
-  commodity are separate orders. An empty buy plan is a no-op rather than a
-  malformed `VALUES` clause.
+  the nearest seeded grade below them rather than being skipped. Eligibility is
+  the per-unit ask; when it qualifies, quantity is the whole listed stack
+  (`GREATEST(items.stack_size, initial_stack_size)`), so unsold full stacks and
+  listings whose item row still shows `stack_size = 1` pay in one pass.
+  Multiple stacks of the same commodity are separate orders. An empty buy plan
+  is a no-op rather than a malformed `VALUES` clause.
   Seller payment entries use EDA's fixes: per-unit `item_price` and the
   never-expires sentinel expiration (`999999999`) so the game server's expire
   proc cannot purge an uncollected "Take Solari" payment.
@@ -215,17 +215,17 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.13.0
-   git push origin v0.13.0
+   git tag v0.13.1
+   git push origin v0.13.1
    ```
 
-The tag **must** be `v` + `addon.json.version` (for example `v0.13.0`). The
+The tag **must** be `v` + `addon.json.version` (for example `v0.13.1`). The
 release workflow refuses a mismatched tag. GitHub Actions validates the addon,
 packages `addon.json` + `web/`, creates the GitHub Release, and uploads:
 
 ```text
-eda-exchange-bot-0.13.0.zip
-eda-exchange-bot-0.13.0.zip.sha256
+eda-exchange-bot-0.13.1.zip
+eda-exchange-bot-0.13.1.zip.sha256
 ```
 
 Do not use GitHub's automatic source archives as the install package.
@@ -235,7 +235,7 @@ Do not use GitHub's automatic source archives as the install package.
 Staging copies for the catalog PR live in `community-index/` (see that
 README). Per [RedBlink publishing docs](https://github.com/Red-Blink/dune-docker-addon-template/blob/main/docs/publishing.md):
 
-1. Publish the `v0.13.0` release first and copy the release asset's SHA-256
+1. Publish the `v0.13.1` release first and copy the release asset's SHA-256
    into `community-index/eda-exchange-bot.json`.
 2. Open a pull request to
    [Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)
