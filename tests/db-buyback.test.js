@@ -177,6 +177,39 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     );
   });
 
+  await t.test("manual sweep never buys NPC or bot-owned sell listings", async () => {
+    // Under-cap NPC stock and a mistagged bot-owned player-flagged listing must
+    // both survive: buyback only purchases true player sells.
+    const npcBefore = db.queryOne(DB_NAME, `
+      SELECT COUNT(*)::text FROM dune.dune_exchange_orders
+      WHERE exchange_id = ${EX_A} AND is_npc_order = TRUE`);
+    db.execSql(DB_NAME, `
+      INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id, quality_level) VALUES
+        (800060, ${EX_A}, 100, 9060, 'TestOre', 0),
+        (800061, ${EX_A}, 100, 9061, 'TestOre', 0);
+      INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, quality_level, item_id) VALUES
+        (700060, ${EX_A}, ${AP_A}, ${botId}, TRUE, 123456, 'TestOre', 1, 0, 800060),
+        (700061, ${EX_A}, ${AP_A}, ${botId}, FALSE, 123456, 'TestOre', 1, 0, 800061);
+      INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES
+        (700060, 100, 1), (700061, 100, 1);`);
+    const sql = await harness.clickAndCaptureSql("buySweep");
+    assert.ok(sql, `buyback write did not run: ${harness.statusText()}`);
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700060"), "1", "NPC sell order must not be bought");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700061"), "1", "bot-owned sell order must not be bought");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.items WHERE id IN (800060, 800061)"), "2");
+    assert.equal(
+      db.queryOne(DB_NAME, `
+        SELECT COUNT(*)::text FROM dune.dune_exchange_orders
+        WHERE exchange_id = ${EX_A} AND is_npc_order = TRUE`),
+      String(Number(npcBefore) + 1),
+      "seeded NPC market must remain intact"
+    );
+    assert.equal(
+      db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_fulfilled_orders WHERE original_order_id IN (700060, 700061)"),
+      "0"
+    );
+  });
+
   await t.test("manual sweep pays the full matching resource stack", async () => {
     // Unsold resource listings keep items.stack_size in sync with
     // initial_stack_size; pay the whole stack in one pass.

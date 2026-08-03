@@ -88,8 +88,10 @@ test("buyback SQL: payment records are per-unit, never-expiring, seller-owned", 
   assert.ok(!sql.includes("rec.item_price * rec.actual_stack) RETURNING id INTO v_log_order_id"), "payment must not pre-multiply by stack size");
   // Fulfilled-order audit row references the bought order.
   assert.match(sql, /INSERT INTO dune\.dune_exchange_fulfilled_orders \(order_id, source_order_id, completion_type, stack_size, original_order_id\)/);
-  // Sweep only touches the selected exchange and player orders.
-  assert.ok(sql.includes(`o.exchange_id = ${EXCHANGE_ID} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id`));
+  // Sweep only touches the selected exchange and player sell orders — never
+  // NPC market stock (is_npc_order) or the bot's own seeded listings (Revy).
+  assert.match(sql, new RegExp(`o\\.exchange_id = ${EXCHANGE_ID} AND COALESCE\\(o\\.is_npc_order, FALSE\\) = FALSE AND o\\.owner_id IS DISTINCT FROM v_owner_id`));
+  assert.ok(!sql.includes("o.is_npc_order = FALSE AND o.owner_id <> v_owner_id"), "must use null-safe NPC/bot exclusion");
   // Reject non-positive prices/stacks; cap is already grade-specific so the
   // predicate compares item_price to max_unit_price directly (qty 1 / per-unit).
   // When that unit ask qualifies, quantity is the whole listed stack via
