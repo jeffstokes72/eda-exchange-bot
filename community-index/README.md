@@ -8,43 +8,32 @@ and
 [addon-submission](https://github.com/Red-Blink/dune-docker-addons/blob/main/docs/addon-submission.md)
 docs.
 
-`index.json` here was refreshed from `Red-Blink/dune-docker-addons@main` with
-only the `eda-exchange-bot` entry and `updatedAt` changed for 0.13.1.
+ here updates only the  entry and 
+for 0.13.1.
 
-## Release checklist
+## Release checklist (done for 0.13.1)
 
-1. Confirm every current-version field is **0.13.1**:
-   - `addon.json`
-   - `package.json` / `package-lock.json`
-   - `web/market-seed-plan.json` (`panel_version`)
-   - `scripts/generate-seed-plan.py` (`panel_version`)
-   - `CHANGELOG.md` top section
-2. Create and push the matching tag (**with** the `v` prefix):
-
-   ```bash
-   git tag v0.13.1
-   git push origin v0.13.1
-   ```
-
-3. Wait for the Release workflow to upload
-   `eda-exchange-bot-0.13.1.zip` and `.sha256`:
+1. Current-version fields are **0.13.1**.
+2. Tag  was pushed; the Release workflow built
+    with its  asset:
    https://github.com/jeffstokes72/eda-exchange-bot/releases/tag/v0.13.1
-4. Copy that checksum into `eda-exchange-bot.json` `sha256`. Do **not** open
-   the community-index PR while `sha256` is empty.
+3. Checksum from that published asset is filled into 
+   . Re-verify with  if the
+   archive is ever rebuilt.
 
 ## Submitting to Red-Blink/dune-docker-addons
 
 1. Sync your fork of https://github.com/Red-Blink/dune-docker-addons with
-   `upstream/main`.
-2. Copy `community-index/eda-exchange-bot.json` → `addons/eda-exchange-bot.json`
+   .
+2. Copy  → 
    (update the existing manifest **in place**; do not add a new file per
    release).
-3. In `index.json`, update **only** the `eda-exchange-bot` entry and
-   `updatedAt`. Do not overwrite the whole file.
-4. Keep `downloadUrl` pinned to the `v0.13.1` release asset (not
-   `releases/latest/...`).
-5. Open a PR to `Red-Blink/dune-docker-addons` titled
+3. In , update **only** the  entry and
+   . Do not overwrite the whole file.
+4. Keep  pinned to the  release asset (not
+   ).
+5. Open a PR to  titled
    **Update EDA Exchange Bot to 0.13.1**.
 
-Permissions stay structured and include `scheduler:server`. Lifecycle fields
-stay in `index.json` only (not in this addon's `addon.json`).
+Permissions stay structured and include . Lifecycle fields
+stay in  only (not in this addon's ).
