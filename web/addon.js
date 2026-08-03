@@ -27,6 +27,8 @@
   const serverBuybackPercentEl = document.getElementById("serverBuybackPercent");
   const serverMaxBuysEl = document.getElementById("serverMaxBuys");
   const serverScheduleStatusEl = document.getElementById("serverScheduleStatus");
+  const buybackLogEl = document.getElementById("buybackLog");
+  const buybackLogMetaEl = document.getElementById("buybackLogMeta");
 
   let payload = null;
   let renderedRows = [];
@@ -40,9 +42,24 @@
   let serverScheduleRefreshInFlight = false;
   let serverScheduleSaveInFlight = false;
   let serverProbeInFlight = false;
+  let lastExecuteResult = null;
+  let buybackLogEntries = [];
 
   const rememberedExchangeStorageKey = "eda-exchange-bot.remembered-exchanges";
   const settingsStorageKey = "eda-exchange-bot.settings";
+  const buybackLogStorageKey = "eda-exchange-bot.buyback-log";
+
+  // Per-listing buyback sweep outcome codes shown in the Buyback Sweep Log.
+  // 0x0 = bought (or eligible on a dry-run). 0x1 = ask above the seeded cap.
+  const BUYBACK_RESULT_CODES = {
+    0x0: { label: "success", summary: "Bought (or eligible on dry-run)" },
+    0x1: { label: "price too high", summary: "Ask exceeds buyback cap (threshold % of seeded grade price)" },
+    0x2: { label: "no reference price", summary: "Template not in the seed plan — there is no live market average" },
+    0x3: { label: "invalid price", summary: "Non-positive item_price" },
+    0x4: { label: "invalid stack", summary: "Stack size is zero or missing" },
+    0x5: { label: "max buys limit", summary: "Eligible but past Max Buys Per Sweep this run" },
+    0x6: { label: "skipped locked", summary: "Eligible but locked by a concurrent sweep" }
+  };
 
   // Sentinel expiration used by EDA's market bot for seller "Take Solari"
   // payment entries. The game server's dune_exchange_expire_orders proc runs
@@ -499,18 +516,21 @@ COMMIT;`;
   // caps come only from the seeded plan row at this grade.
   const BUYBACK_ORDER_GRADE_SQL = "LEAST(GREATEST(COALESCE(o.quality_level, 0), COALESCE(i.quality_level, 0), 0), 5)";
 
-  // Full stack quantity for a sell listing. Player resource listings sometimes
-  // keep the real quantity on sell_orders.initial_stack_size while
-  // items.stack_size stays 1; COALESCE alone would then pay for one unit and
-  // delete the rest unpaid. We always remove the whole listing, so take the
-  // larger of the two positive counts.
+  // Listed stack quantity. Eligibility is always on the per-unit ask (qty 1):
+  // if that unit price is under the cap, buy the whole stack in one pass —
+  // never pay for a single unit while deleting a multi-unit listing. Player
+  // resource listings often keep the real size on sell_orders.initial_stack_size
+  // while items.stack_size stays 1, so take the larger of the two positive
+  // counts. Fall back through COALESCE zeros so a missing item row still uses
+  // initial_stack_size.
   const BUYBACK_STACK_SQL = "GREATEST(COALESCE(i.stack_size, 0), COALESCE(s.initial_stack_size, 0))";
 
   // Buyback eligibility shared by the write sweep, diagnostics, and the
   // read-only probe: never buy non-positive prices or empty stacks (a negative
   // player listing would otherwise match <= cap and credit the bot). Cap is
   // already threshold% of the seeded price at this exact grade, so no further
-  // grade multiplier is applied in SQL.
+  // grade multiplier is applied in SQL. Price check is per-unit (qty 1) only;
+  // stack size is not part of the cap math.
   const BUYBACK_ELIGIBLE_PREDICATE = `o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price <= p.max_unit_price`;
 
   // Plan lookup for one listing: the cap for its own grade when the plan seeds
@@ -530,6 +550,30 @@ COMMIT;`;
                  CASE WHEN pp.quality_level <= ${BUYBACK_ORDER_GRADE_SQL} THEN -pp.quality_level ELSE pp.quality_level END
         LIMIT 1
     ) p ON TRUE`;
+
+  // Classifies every player sell listing on the selected exchange. Shared by
+  // the write-sweep log table and the read-only dry-run log query.
+  const BUYBACK_RESULT_CODE_SQL = `CASE
+        WHEN p.template_id IS NULL THEN 2
+        WHEN o.item_price <= 0 THEN 3
+        WHEN ${BUYBACK_STACK_SQL} <= 0 THEN 4
+        WHEN o.item_price > p.max_unit_price THEN 1
+        ELSE 0
+    END`;
+  const BUYBACK_RESULT_LABEL_SQL = `CASE
+        WHEN p.template_id IS NULL THEN 'no reference price'
+        WHEN o.item_price <= 0 THEN 'invalid price'
+        WHEN ${BUYBACK_STACK_SQL} <= 0 THEN 'invalid stack'
+        WHEN o.item_price > p.max_unit_price THEN 'price too high'
+        ELSE 'eligible'
+    END`;
+  const BUYBACK_RESULT_DETAIL_SQL = `CASE
+        WHEN p.template_id IS NULL THEN 'template not in seed plan (no live market average; caps come only from seeded NPC prices)'
+        WHEN o.item_price <= 0 THEN 'item_price must be > 0'
+        WHEN ${BUYBACK_STACK_SQL} <= 0 THEN 'stack size must be > 0'
+        WHEN o.item_price > p.max_unit_price THEN 'ask ' || o.item_price::text || ' > cap ' || p.max_unit_price::text
+        ELSE 'ask ' || o.item_price::text || '/unit <= cap ' || p.max_unit_price::text || '; buy whole stack ' || (${BUYBACK_STACK_SQL})::text
+    END`;
 
   // Buyback plan: one cap per (template_id, quality_level) = threshold% of that
   // seeded row's price. Seeded grade prices are not always q0 × grade_mult
@@ -562,17 +606,24 @@ COMMIT;`;
       .join(",\n");
   }
 
+  function buybackPlanValuesOrNullSql() {
+    return buybackPlanValuesSql() || "(NULL::text,NULL::bigint,NULL::bigint)";
+  }
+
   function buildBuybackSql() {
     const exchangeId = currentExchangeIdValue();
     const threshold = currentThreshold();
+    const maxBuys = currentMaxBuys();
     const valuesSql = buybackPlanValuesSql();
+    const planInsert = valuesSql
+      ? `INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price) VALUES\n${valuesSql};`
+      : `-- buyback plan empty: no seeded caps; every player listing logs as 0x2\n`;
     return `BEGIN;
 CREATE TEMP TABLE market_buy_plan (template_id TEXT NOT NULL, quality_level BIGINT NOT NULL, max_unit_price BIGINT NOT NULL, PRIMARY KEY (template_id, quality_level)) ON COMMIT DROP;
 CREATE TEMP TABLE market_buy_result (purchased INTEGER NOT NULL, total_units BIGINT NOT NULL, total_solari BIGINT NOT NULL, threshold_percent INTEGER NOT NULL, max_buys INTEGER NOT NULL) ON COMMIT DROP;
 CREATE TEMP TABLE market_buy_diagnostics (player_sell_orders BIGINT NOT NULL, known_player_sell_orders BIGINT NOT NULL, eligible_player_sell_orders BIGINT NOT NULL, above_threshold_sell_orders BIGINT NOT NULL, unknown_template_sell_orders BIGINT NOT NULL) ON COMMIT DROP;
-INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price) VALUES
-${valuesSql || "(NULL,NULL,NULL) ON CONFLICT DO NOTHING"};
-DELETE FROM market_buy_plan WHERE template_id IS NULL;
+CREATE TEMP TABLE market_buy_log (order_id BIGINT NOT NULL, template_id TEXT NOT NULL, quality_level BIGINT NOT NULL, item_price BIGINT NOT NULL, stack_size BIGINT NOT NULL, max_unit_price BIGINT, result_code INTEGER NOT NULL, result_label TEXT NOT NULL, detail TEXT NOT NULL) ON COMMIT DROP;
+${planInsert}
 DO $$
 DECLARE
     v_owner_id BIGINT; v_partition_id BIGINT; v_log_order_id BIGINT; v_balance BIGINT; v_purchased INTEGER := 0; v_units BIGINT := 0; v_solari BIGINT := 0; rec RECORD;
@@ -590,6 +641,13 @@ BEGIN
     IF v_balance < 1000000000000 THEN
         PERFORM dune.dune_exchange_modify_user_solari_balance(v_owner_id, 9000000000000 - v_balance);
     END IF;
+    INSERT INTO market_buy_log (order_id, template_id, quality_level, item_price, stack_size, max_unit_price, result_code, result_label, detail)
+    SELECT o.id, o.template_id, ${BUYBACK_ORDER_GRADE_SQL}, o.item_price, ${BUYBACK_STACK_SQL}, p.max_unit_price, ${BUYBACK_RESULT_CODE_SQL}, ${BUYBACK_RESULT_LABEL_SQL}, ${BUYBACK_RESULT_DETAIL_SQL}
+    FROM dune.dune_exchange_orders o
+    JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id
+    LEFT JOIN dune.items i ON i.id = o.item_id
+    ${BUYBACK_PLAN_LATERAL}
+    WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
     INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND ${BUYBACK_ELIGIBLE_PREDICATE}), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price > p.max_unit_price), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LATERAL} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
     -- FOR UPDATE OF o, s SKIP LOCKED is the database-level concurrency guard:
     -- the page-level writeInProgress flag only covers one browser tab, so two
@@ -597,26 +655,48 @@ BEGIN
     -- (duplicate seller payment, double bot debit). Locking the selected order
     -- rows makes concurrent sweeps skip anything already claimed, and rows
     -- deleted by a committed sweep drop out of the re-checked result.
-    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, ${BUYBACK_STACK_SQL} AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LATERAL} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${currentMaxBuys()} FOR UPDATE OF o, s SKIP LOCKED LOOP
+    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, ${BUYBACK_STACK_SQL} AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LATERAL} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${maxBuys} FOR UPDATE OF o, s SKIP LOCKED LOOP
         -- Seller "Take Solari" payment entry. item_price stays the per-unit
         -- price (the game multiplies by stack_size itself) and expiration is
         -- the never-expires sentinel so the game server's expire proc cannot
         -- purge an uncollected payment (EDA "items eaten without payment" fix).
-        -- actual_stack is the full listed quantity (see BUYBACK_STACK_SQL), so
-        -- a 500-unit resource listing is bought and paid in one sweep — never
-        -- a single unit from the stack.
+        -- actual_stack is the whole listed stack (see BUYBACK_STACK_SQL). The
+        -- per-unit ask already qualified (qty 1); pay for every unit in the
+        -- listing in this one sweep.
         INSERT INTO dune.dune_exchange_orders (exchange_id, access_point_id, owner_id, template_id, expiration_time, durability_cur, durability_max, item_price, category_mask, category_depth, is_npc_order) VALUES (rec.exchange_id, rec.access_point_id, rec.seller_actor_id, rec.template_id, ${PAYMENT_SENTINEL_EXPIRY}, 1.0, 1.0, rec.item_price, 0, 0, FALSE) RETURNING id INTO v_log_order_id;
         INSERT INTO dune.dune_exchange_fulfilled_orders (order_id, source_order_id, completion_type, stack_size, original_order_id) VALUES (v_log_order_id, NULL, 4, rec.actual_stack, rec.order_id);
         UPDATE dune.dune_exchange_users SET solari_balance = solari_balance - (rec.item_price * rec.actual_stack) WHERE owner_id = v_owner_id;
         DELETE FROM dune.dune_exchange_sell_orders WHERE order_id = rec.order_id;
         DELETE FROM dune.dune_exchange_orders WHERE id = rec.order_id;
         IF rec.item_id IS NOT NULL THEN DELETE FROM dune.items WHERE id = rec.item_id; END IF;
+        UPDATE market_buy_log SET result_code = 0, result_label = 'success', detail = 'bought stack ' || rec.actual_stack::text || ' at ' || rec.item_price::text || '/unit (cap ' || rec.max_unit_price::text || ')' WHERE order_id = rec.order_id;
         v_purchased := v_purchased + 1; v_units := v_units + rec.actual_stack; v_solari := v_solari + (rec.item_price * rec.actual_stack);
     END LOOP;
-    INSERT INTO market_buy_result (purchased, total_units, total_solari, threshold_percent, max_buys) VALUES (v_purchased, v_units, v_solari, ${threshold}, ${currentMaxBuys()});
+    -- Remaining eligible rows: rank by the same price/id order the FOR loop
+    -- uses. Ranks past Max Buys were never selected (0x5). Ranks within the
+    -- limit that we did not buy were SKIP LOCKED or taken concurrently (0x6).
+    -- Do not use purchased >= maxBuys alone — that mislabels locked rows when
+    -- the sweep also hit the buy cap.
+    UPDATE market_buy_log l
+    SET result_code = CASE WHEN r.rn > ${maxBuys} THEN 5 ELSE 6 END,
+        result_label = CASE WHEN r.rn > ${maxBuys} THEN 'max buys limit' ELSE 'skipped locked' END,
+        detail = CASE
+            WHEN r.rn > ${maxBuys} THEN 'eligible but past Max Buys Per Sweep (' || ${maxBuys}::text || ')'
+            ELSE 'eligible but locked by a concurrent sweep'
+        END
+    FROM (
+        SELECT order_id, ROW_NUMBER() OVER (ORDER BY item_price ASC, order_id ASC) AS rn
+        FROM market_buy_log
+        WHERE result_label IN ('eligible', 'success')
+    ) r
+    WHERE l.order_id = r.order_id AND l.result_label = 'eligible';
+    INSERT INTO market_buy_result (purchased, total_units, total_solari, threshold_percent, max_buys) VALUES (v_purchased, v_units, v_solari, ${threshold}, ${maxBuys});
 END $$;
-SELECT purchased, total_units, total_solari, threshold_percent, max_buys FROM market_buy_result;
-SELECT player_sell_orders, known_player_sell_orders, eligible_player_sell_orders, above_threshold_sell_orders, unknown_template_sell_orders FROM market_buy_diagnostics;
+SELECT json_build_object(
+    'result', (SELECT row_to_json(r) FROM market_buy_result r),
+    'diagnostics', (SELECT row_to_json(d) FROM market_buy_diagnostics d),
+    'log', (SELECT COALESCE(json_agg(l ORDER BY l.result_code ASC, l.item_price ASC, l.order_id ASC), '[]'::json) FROM market_buy_log l)
+)::text AS buyback_report;
 COMMIT;`;
   }
 
@@ -627,6 +707,9 @@ COMMIT;`;
   function buildBuybackEligibilitySql() {
     const exchangeId = currentExchangeIdValue();
     const valuesSql = buybackPlanValuesSql();
+    if (!valuesSql) {
+      return `SELECT '0' AS eligible_orders;`;
+    }
     return `WITH market_buy_plan(template_id, quality_level, max_unit_price) AS (
     VALUES
 ${valuesSql}
@@ -644,6 +727,39 @@ WHERE o.exchange_id = ${exchangeId}
   AND o.is_npc_order = FALSE
   AND (b.owner_id IS NULL OR o.owner_id <> b.owner_id)
   AND ${BUYBACK_ELIGIBLE_PREDICATE};`;
+  }
+
+  // Read-only per-listing classification for the Buyback Sweep Log dry-run.
+  // Caps come only from the seeded plan — there is no live market average.
+  function buildBuybackClassifySql() {
+    const exchangeId = currentExchangeIdValue();
+    const valuesSql = buybackPlanValuesOrNullSql();
+    return `WITH market_buy_plan(template_id, quality_level, max_unit_price) AS (
+    VALUES
+${valuesSql}
+),
+bot AS (
+    SELECT id AS owner_id FROM dune.actors WHERE class = 'Revy' LIMIT 1
+)
+SELECT
+    o.id::text AS order_id,
+    o.template_id,
+    (${BUYBACK_ORDER_GRADE_SQL})::text AS quality_level,
+    o.item_price::text AS item_price,
+    (${BUYBACK_STACK_SQL})::text AS stack_size,
+    COALESCE(p.max_unit_price, 0)::text AS max_unit_price,
+    (${BUYBACK_RESULT_CODE_SQL})::text AS result_code,
+    ${BUYBACK_RESULT_LABEL_SQL} AS result_label,
+    ${BUYBACK_RESULT_DETAIL_SQL} AS detail
+FROM dune.dune_exchange_orders o
+JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id
+LEFT JOIN dune.items i ON i.id = o.item_id
+${BUYBACK_PLAN_LATERAL}
+LEFT JOIN bot b ON TRUE
+WHERE o.exchange_id = ${exchangeId}
+  AND o.is_npc_order = FALSE
+  AND (b.owner_id IS NULL OR o.owner_id <> b.owner_id)
+ORDER BY (${BUYBACK_RESULT_CODE_SQL}) ASC, o.item_price ASC, o.id ASC;`;
   }
 
   function buildClearNpcSql() {
@@ -744,9 +860,11 @@ COMMIT;`;
     statusEl.textContent = `${label} starting. RedBlink is creating a backup before the database write...`;
     resultEl.textContent = "Running...";
     writeInProgress = true;
+    lastExecuteResult = null;
     for (const button of document.querySelectorAll("button")) button.disabled = true;
     try {
       const result = await requestBridge("database.execute", { query: sql });
+      lastExecuteResult = result;
       statusEl.className = "status ok";
       statusEl.textContent = `${label} complete.`;
       resultEl.textContent = JSON.stringify(result, null, 2);
@@ -775,6 +893,282 @@ COMMIT;`;
       resultEl.textContent = error.stack || error.message || String(error);
       return Promise.resolve(false);
     }
+  }
+
+  function buybackCodeHex(code) {
+    const number = Number(code);
+    if (!Number.isFinite(number) || number < 0) return "0x?";
+    return `0x${number.toString(16).toUpperCase()}`;
+  }
+
+  function normalizeBuybackLogRow(row, overrides = {}) {
+    if (!row || typeof row !== "object") return null;
+    const code = Number(row.result_code);
+    const meta = BUYBACK_RESULT_CODES[code] || { label: String(row.result_label || "unknown"), summary: "" };
+    return {
+      order_id: String(row.order_id ?? ""),
+      template_id: String(row.template_id ?? ""),
+      quality_level: String(row.quality_level ?? ""),
+      item_price: String(row.item_price ?? ""),
+      stack_size: String(row.stack_size ?? ""),
+      max_unit_price: row.max_unit_price == null || row.max_unit_price === "" ? "" : String(row.max_unit_price),
+      result_code: Number.isFinite(code) ? code : -1,
+      result_hex: buybackCodeHex(code),
+      result_label: String(row.result_label || meta.label || "unknown"),
+      detail: String(row.detail || meta.summary || ""),
+      ...overrides
+    };
+  }
+
+  function extractBuybackReport(result) {
+    if (!result) return null;
+    const candidates = [];
+    if (typeof result.buyback_report === "string") candidates.push(result.buyback_report);
+    if (Array.isArray(result.rows)) {
+      for (const row of result.rows) {
+        if (typeof row?.buyback_report === "string") candidates.push(row.buyback_report);
+        else if (row?.buyback_report && typeof row.buyback_report === "object") return row.buyback_report;
+      }
+    }
+    if (Array.isArray(result.results)) {
+      for (const set of result.results) {
+        for (const row of set?.rows || []) {
+          if (typeof row?.buyback_report === "string") candidates.push(row.buyback_report);
+          else if (row?.buyback_report && typeof row.buyback_report === "object") return row.buyback_report;
+        }
+      }
+    }
+    for (const text of candidates) {
+      try { return JSON.parse(text); } catch { /* keep looking */ }
+    }
+    return null;
+  }
+
+  function persistBuybackLog() {
+    try {
+      localStorage.setItem(buybackLogStorageKey, JSON.stringify(buybackLogEntries.slice(0, 500)));
+    } catch { /* quota / private mode */ }
+  }
+
+  function restoreBuybackLog() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(buybackLogStorageKey) || "[]");
+      if (Array.isArray(parsed)) buybackLogEntries = parsed.filter((entry) => entry && typeof entry === "object");
+    } catch {
+      buybackLogEntries = [];
+    }
+    renderBuybackLog();
+  }
+
+  function summarizeBuybackLogBatch(entries) {
+    const counts = new Map();
+    for (const entry of entries) {
+      const key = entry.result_hex || buybackCodeHex(entry.result_code);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return Array.from(counts.entries()).map(([hex, count]) => `${hex}×${count}`).join(", ");
+  }
+
+  function renderBuybackLog() {
+    if (!buybackLogEl || !buybackLogMetaEl) return;
+    if (!buybackLogEntries.length) {
+      buybackLogMetaEl.textContent = "No buyback sweep attempts logged yet.";
+      buybackLogEl.innerHTML = `<p class="muted">Run a buyback sweep or Refresh Log (dry-run) to classify player sell listings. Codes: 0x0 success, 0x1 price too high, 0x2 no reference price, 0x3 invalid price, 0x4 invalid stack, 0x5 max buys limit, 0x6 skipped locked.</p>`;
+      return;
+    }
+    const latest = buybackLogEntries[0];
+    buybackLogMetaEl.textContent = `${buybackLogEntries.length} log batch(es) stored. Latest: ${latest.source} at ${latest.at} — ${latest.summary || `${latest.entries?.length || 0} listings`}.`;
+    buybackLogEl.innerHTML = buybackLogEntries.map((batch) => {
+      const rows = (batch.entries || []).map((entry) => {
+        const codeClass = entry.result_code === 0 ? "ok" : "error";
+        return `<tr class="${codeClass}">
+          <td><code>${escapeHtml(entry.result_hex)}</code></td>
+          <td>${escapeHtml(entry.result_label)}</td>
+          <td>${escapeHtml(entry.template_id)}</td>
+          <td>${escapeHtml(entry.quality_level)}</td>
+          <td>${escapeHtml(entry.item_price)}</td>
+          <td>${escapeHtml(entry.stack_size)}</td>
+          <td>${escapeHtml(entry.max_unit_price || "—")}</td>
+          <td>${escapeHtml(entry.order_id)}</td>
+          <td>${escapeHtml(entry.detail)}</td>
+        </tr>`;
+      }).join("");
+      return `<div class="buyback-log-batch">
+        <h3>${escapeHtml(batch.source)} <span class="muted">${escapeHtml(batch.at)}</span></h3>
+        <p class="muted">${escapeHtml(batch.summary || "")}${batch.note ? ` — ${escapeHtml(batch.note)}` : ""}</p>
+        <table>
+          <thead><tr><th>Code</th><th>Result</th><th>Template</th><th>Grade</th><th>Ask/unit</th><th>Stack</th><th>Cap</th><th>Order</th><th>Detail</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="9" class="muted">No player sell listings on this exchange.</td></tr>`}</tbody>
+        </table>
+      </div>`;
+    }).join("");
+  }
+
+  function appendBuybackLogBatch(entries, { source, note = "" } = {}) {
+    const normalized = (entries || []).map((row) => normalizeBuybackLogRow(row)).filter(Boolean);
+    buybackLogEntries.unshift({
+      source: source || "Buyback",
+      at: new Date().toLocaleString(),
+      note,
+      summary: `${normalized.length} listing(s); ${summarizeBuybackLogBatch(normalized) || "none"}`,
+      entries: normalized
+    });
+    buybackLogEntries = buybackLogEntries.slice(0, 20);
+    persistBuybackLog();
+    renderBuybackLog();
+  }
+
+  async function queryBuybackClassification() {
+    const result = await requestBridge("database.query", { query: buildBuybackClassifySql() });
+    return (result?.rows || []).map((row) => normalizeBuybackLogRow(row)).filter(Boolean);
+  }
+
+  async function resolveBuybackLogAfterWrite(beforeEntries) {
+    const report = extractBuybackReport(lastExecuteResult);
+    if (report && Array.isArray(report.log)) {
+      return report.log.map((row) => normalizeBuybackLogRow(row)).filter(Boolean);
+    }
+    // Bridges that discard execute SELECT rows: diff pre-classify vs remaining,
+    // confirm vanished eligible listings via fulfilled-order audit rows, and
+    // rank leftovers the same way the write SQL does (do not assume vanished
+    // == bought by this sweep).
+    let afterEntries = [];
+    try {
+      afterEntries = await queryBuybackClassification();
+    } catch {
+      return beforeEntries;
+    }
+    const remaining = new Set(afterEntries.map((entry) => entry.order_id));
+    const maxBuys = currentMaxBuys();
+    const originallyEligible = beforeEntries
+      .filter((entry) => entry.result_code === 0 && entry.result_label === "eligible")
+      .slice()
+      .sort((left, right) => {
+        const priceDelta = Number(left.item_price) - Number(right.item_price);
+        if (priceDelta !== 0) return priceDelta;
+        try {
+          const a = BigInt(left.order_id);
+          const b = BigInt(right.order_id);
+          if (a < b) return -1;
+          if (a > b) return 1;
+          return 0;
+        } catch {
+          return String(left.order_id).localeCompare(String(right.order_id));
+        }
+      });
+    const eligibleRank = new Map(originallyEligible.map((entry, index) => [entry.order_id, index + 1]));
+    const vanishedEligibleIds = originallyEligible
+      .map((entry) => entry.order_id)
+      .filter((orderId) => !remaining.has(orderId) && /^[0-9]+$/.test(orderId));
+
+    const confirmedBought = new Set();
+    if (vanishedEligibleIds.length) {
+      try {
+        const confirmSql = `SELECT original_order_id::text AS order_id
+FROM dune.dune_exchange_fulfilled_orders
+WHERE completion_type = 4
+  AND original_order_id IN (${vanishedEligibleIds.join(",")})`;
+        const confirmResult = await requestBridge("database.query", { query: confirmSql });
+        for (const row of confirmResult?.rows || []) {
+          if (row?.order_id != null) confirmedBought.add(String(row.order_id));
+        }
+      } catch {
+        // Leave unconfirmed; never invent success rows.
+      }
+    }
+
+    return beforeEntries.map((entry) => {
+      if (remaining.has(entry.order_id)) {
+        if (entry.result_code === 0 && entry.result_label === "eligible") {
+          const rank = eligibleRank.get(entry.order_id) || Number.POSITIVE_INFINITY;
+          if (rank > maxBuys) {
+            return normalizeBuybackLogRow({
+              ...entry,
+              result_code: 5,
+              result_label: "max buys limit",
+              detail: `eligible but past Max Buys Per Sweep (${maxBuys})`
+            });
+          }
+          return normalizeBuybackLogRow({
+            ...entry,
+            result_code: 6,
+            result_label: "skipped locked",
+            detail: "eligible but locked by a concurrent sweep"
+          });
+        }
+        return entry;
+      }
+      if (entry.result_code === 0 && entry.result_label === "eligible") {
+        if (confirmedBought.has(entry.order_id)) {
+          return normalizeBuybackLogRow({
+            ...entry,
+            result_code: 0,
+            result_label: "success",
+            detail: `bought stack ${entry.stack_size} at ${entry.item_price}/unit (cap ${entry.max_unit_price || "—"})`
+          });
+        }
+        return normalizeBuybackLogRow({
+          ...entry,
+          result_code: 6,
+          result_label: "skipped locked",
+          detail: "listing gone after sweep without a confirmed payment row (concurrent remove or bridge omitted buyback_report)"
+        });
+      }
+      return entry;
+    });
+  }
+
+  async function runBuybackSweep(label, options = {}) {
+    const confirmPrompt = options.confirmPrompt !== false;
+    if (confirmPrompt && !confirm(`${label}? RedBlink will create a database backup before this write. This may take some time.`)) {
+      return false;
+    }
+    let beforeEntries = [];
+    try {
+      beforeEntries = await queryBuybackClassification();
+    } catch (error) {
+      // Classification is best-effort; the write may still succeed and return a report.
+      statusEl.className = "status";
+      statusEl.textContent = `${label}: could not pre-classify listings (${error.message || error}); continuing with write...`;
+    }
+    const ok = await runWrite(label, buildBuybackSql, { ...options, confirmPrompt: false });
+    if (!ok) {
+      if (beforeEntries.length) {
+        appendBuybackLogBatch(beforeEntries, { source: label, note: "sweep did not complete; showing pre-classify codes" });
+      }
+      return false;
+    }
+    try {
+      const entries = await resolveBuybackLogAfterWrite(beforeEntries);
+      appendBuybackLogBatch(entries, { source: label });
+      const bought = entries.filter((entry) => entry.result_code === 0 && entry.result_label === "success").length;
+      const blocked = entries.length - bought;
+      statusEl.className = "status ok";
+      statusEl.textContent = `${label} complete. ${bought.toLocaleString()} bought, ${blocked.toLocaleString()} not bought — see Buyback Sweep Log.`;
+    } catch (error) {
+      if (beforeEntries.length) appendBuybackLogBatch(beforeEntries, { source: label, note: `post-log failed: ${error.message || error}` });
+    }
+    return true;
+  }
+
+  async function refreshBuybackLogDryRun() {
+    try {
+      const entries = await queryBuybackClassification();
+      appendBuybackLogBatch(entries, { source: "Dry-run classify", note: "read-only; nothing purchased" });
+      statusEl.className = "status ok";
+      statusEl.textContent = `Buyback log refreshed: ${entries.length.toLocaleString()} player sell listing(s) classified (dry-run).`;
+    } catch (error) {
+      statusEl.className = "status error";
+      statusEl.textContent = error.message || String(error);
+    }
+  }
+
+  function clearBuybackLog() {
+    buybackLogEntries = [];
+    persistBuybackLog();
+    renderBuybackLog();
+    statusEl.className = "status";
+    statusEl.textContent = "Buyback sweep log cleared.";
   }
 
   function setAutoStatus(message, className = "status") {
@@ -817,11 +1211,15 @@ COMMIT;`;
       const checkResult = await requestBridge("database.query", { query: buildBuybackEligibilitySql() });
       const eligible = Number(checkResult?.rows?.[0]?.eligible_orders || 0);
       if (!Number.isFinite(eligible) || eligible <= 0) {
+        try {
+          const entries = await queryBuybackClassification();
+          appendBuybackLogBatch(entries, { source: "Auto buyback (idle)", note: "nothing eligible; write skipped" });
+        } catch { /* log is best-effort on idle ticks */ }
         setAutoStatus(`Auto buyback: nothing eligible at ${currentThreshold()}% threshold; skipped the write (and its backup). ${describeMarketOpsSchedule()}.`);
         return;
       }
       setAutoStatus(`Auto buyback: ${eligible.toLocaleString()} eligible player listings found; running sweep...`);
-      const ok = await runWrite("Auto buyback sweep", buildBuybackSql, { confirmPrompt: false });
+      const ok = await runBuybackSweep("Auto buyback sweep", { confirmPrompt: false });
       if (ok) {
         setAutoStatus(`Auto buyback: sweep finished at ${new Date().toLocaleTimeString()}. ${describeMarketOpsSchedule()}.`, "status ok");
       } else {
@@ -1148,6 +1546,7 @@ COMMIT;`;
   }
 
   restoreSettings();
+  restoreBuybackLog();
   onAutoBuybackToggle();
   onAutoSeedToggle();
   onAutoCleanupToggle();
@@ -1168,7 +1567,9 @@ COMMIT;`;
   document.getElementById("refreshExchanges").addEventListener("click", () => void loadExchanges());
   document.getElementById("addExchange").addEventListener("click", addManualExchange);
   document.getElementById("seedMarket").addEventListener("click", () => void runWrite("Seed NPC sell market", buildSeedSql));
-  document.getElementById("buySweep").addEventListener("click", () => void runWrite("Run buyback sweep", buildBuybackSql));
+  document.getElementById("buySweep").addEventListener("click", () => void runBuybackSweep("Run buyback sweep"));
+  document.getElementById("refreshBuybackLog").addEventListener("click", () => void refreshBuybackLogDryRun());
+  document.getElementById("clearBuybackLog").addEventListener("click", clearBuybackLog);
   document.getElementById("clearNpc").addEventListener("click", () => void runWrite("Clear EDA NPC listings", buildClearNpcSql, {
     confirmDetail: "This removes the EDA bot's listings from ALL exchanges, not just the selected one."
   }));

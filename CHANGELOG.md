@@ -4,6 +4,71 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.13.1 - 2026-08-03
+
+### Fixed
+
+- **Buyback buys the whole stack when the unit ask qualifies**: eligibility is
+  the per-unit (`qty 1`) ask versus the seeded grade cap. Quantity is again
+  `GREATEST(items.stack_size, sell_orders.initial_stack_size)` so a listing
+  whose item row still shows `stack_size = 1` while `initial_stack_size` holds
+  the real listed count is paid and removed as one full stack — never a
+  single-unit "Take Solari" for a multi-unit listing.
+
+## 0.13.0 - 2026-07-30
+
+### Added
+
+- **Buyback Sweep Log** on the addon page: every manual or auto buyback attempt
+  (and a dry-run Refresh Log) classifies each player sell listing on the
+  selected exchange with a stable hex result code:
+  - `0x0` success (bought; dry-run shows eligible as `0x0` / "eligible")
+  - `0x1` price too high (ask/unit above threshold % of the seeded grade cap)
+  - `0x2` no reference price (template not in the seed plan — there is **no
+    live market average**; caps come only from seeded NPC prices)
+  - `0x3` invalid price / `0x4` invalid stack
+  - `0x5` max buys limit / `0x6` skipped locked (concurrent sweep)
+  Log batches persist in `localStorage` for the browser session. The write
+  sweep also returns a `buyback_report` JSON blob; when the bridge discards
+  execute SELECT rows the UI falls back to a pre/post classify diff.
+
+### Fixed
+
+- **Buyback stack quantity overpaid after partial sales**: quantity used
+  `GREATEST(items.stack_size, sell_orders.initial_stack_size)`, so a leftover
+  of 1 unit on a listing that originally had 500 still paid for 500. Quantity
+  is now `COALESCE(items.stack_size, sell_orders.initial_stack_size)` —
+  remaining inventory when the item row exists, otherwise the list-time size.
+  Full unsold stacks still pay in one pass because both fields match.
+
+### Clarified
+
+- **Stacks / multi-stacks**: `item_price` is per-unit; if that qty-1 ask is
+  under the cap, the listing is bought as one order for the whole
+  `GREATEST(items.stack_size, sell_orders.initial_stack_size)` quantity.
+  Separate stacks are separate orders and are evaluated independently
+  (cheapest first, up to Max Buys Per Sweep).
+- **Server-side schedule is no longer behind on pricing**: RedBlink's
+  `addonJobs.js` (2026-07-29 "align scheduled buybacks with EDA pricing") uses
+  the same per-grade caps, whole-stack quantity, and nearest-grade fallback as
+  the in-page sweep. Older consoles may still use grade-0 base caps /
+  single-unit stacks — upgrade if unattended buys look wrong. The Buyback
+  Sweep Log only covers in-page runs.
+- **Buyback log 0x5/0x6 labeling**: leftover eligible rows are ranked by the
+  same price/id order as the buy loop. Ranks past Max Buys → `0x5`; ranks
+  within the limit that were not bought → `0x6`. Hitting the buy cap no longer
+  mislabels `SKIP LOCKED` rows as max-buys.
+- **Buyback log fallback without `buyback_report`**: vanished eligible listings
+  are only marked `0x0` when a `completion_type = 4` fulfilled-order row
+  confirms a payment; otherwise they stay `0x6` instead of assuming this sweep
+  bought them.
+- **Release / community-index packaging**: version fields aligned to **0.13.0**
+  (`addon.json`, `package.json` / lockfile, seed-plan `panel_version`, staged
+  community-index manifest). Release docs now match RedBlink's template:
+  tag `v0.13.0`, pin the release zip (not GitHub source archives), fill
+  `sha256` from that asset, and update `addons/eda-exchange-bot.json` in place
+  without overwriting other catalog entries.
+
 ## 0.12.0 - 2026-07-28
 
 ### Fixed
