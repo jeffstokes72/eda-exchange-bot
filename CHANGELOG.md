@@ -1,21 +1,89 @@
 # Changelog
 
-Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
-maintainer review) and n00bGames (addon author), documenting what changed and
-why.
+Notable changes to the EDA Exchange Bot addon, authored and maintained by
+jeffstokes72 with n00bGames (Easy Dune Admin). Written for RedBlink (console
+maintainer review) and both addon authors, documenting what changed and why.
 
-## 0.13.3 - 2026-08-05
+## 0.13.4 - 2026-08-05
+
+Addresses RedBlink's review of the Buyback Sweep Log
+([dune-docker-addons#21](https://github.com/Red-Blink/dune-docker-addons/pull/21)):
+sweep logs were not scoped to an Exchange ID, so batches from several exchanges
+could be mixed and a selector change mid-request could retarget the write or
+verification phase. Supersedes 0.13.3, which was rolled back before it reached
+the community catalog; the catalog moves from 0.13.2 straight to 0.13.4.
 
 ### Fixed
 
-- **Buyback operations stay scoped to their starting exchange**: manual and
-  automatic sweeps, idle classifications, and dry-run log refreshes capture
-  the selected Exchange ID once. Classification, eligibility, write, and
-  post-write verification now use that same ID even if the selector changes
-  while a bridge request is pending.
-- **Buyback log batches identify their exchange**: every new batch stores and
-  displays its Exchange ID in both the heading and latest-log summary. Logs
-  saved by earlier releases remain visible as "Legacy exchange unknown."
+- **A buyback operation stays on the exchange it started with**: a sweep is a
+  chain of awaits (pre-classify → write → post-write verification → log batch)
+  and every step re-read the exchange selector. Each operation now captures the
+  Exchange ID once, before its first bridge request, and passes it explicitly to
+  `buildBuybackSql`, `buildBuybackEligibilitySql`, `buildBuybackClassifySql`,
+  `queryBuybackClassification`, and `resolveBuybackLogAfterWrite`. Manual
+  sweeps, automatic sweeps (captured *before* the eligibility probe, then handed
+  to the sweep it triggers), idle-tick classifications, and **Refresh Log
+  (dry-run)** all use the captured value. Changing exchanges while a sweep runs
+  no longer moves the write, the verification, or the log batch.
+- **The log batch cannot be mislabeled by a mid-sweep settings change**: price
+  multiplier, buyback threshold, and Max Buys Per Sweep are captured with the
+  Exchange ID, so the caps a batch was classified against are the caps the write
+  used, and leftover listings are ranked `0x5` / `0x6` against the write's own
+  Max Buys.
+- **Buyback actions with no usable exchange report the error**: the Exchange ID
+  is resolved and validated inside each operation's protected `try` path, so a
+  missing or unusable selection shows "Choose an exchange before running this
+  action." instead of rejecting silently.
+- **An automatic tick always releases its lock**: `autoRunning` is now cleared
+  through `finally` even when the exchange capture fails. Capturing outside the
+  `try` skipped that reset, which left every later automatic buyback, seed, and
+  cleanup tick skipped for the rest of the session.
+- **Post-write verification is exchange-scoped too**: the fulfilled-order audit
+  query that confirms a vanished listing was really bought now joins back to the
+  payment order and filters on the captured Exchange ID, instead of matching
+  order ids alone.
+
+### Changed
+
+- `scripts/dev-console.js` (manual-testing harness only, never shipped in the
+  addon package) sends SQL to `psql` on stdin instead of as a `-c` argument.
+  Linux caps a single argument at 128 KB and the buyback classify / eligibility
+  queries carry the whole seed plan's cap list (~120 KB), so the dry-run log and
+  auto probes failed there with a bare "psql failed". Spawn errors now include
+  their reason.
+
+### Added
+
+- **Every buyback log batch records and shows its exchange**: batches store
+  `exchange_id` and display `Exchange <id>` in the batch heading and the
+  latest-log summary. Batches saved by earlier versions stay visible and are
+  labeled `Legacy exchange unknown`. Sweep confirmations and status lines name
+  the exchange being written to.
+- **Regression coverage** in `tests/buyback-exchange-scope.test.js` (12 cases)
+  plus a PostgreSQL-backed end-to-end case in `tests/db-buyback.test.js`:
+  - a selector change during **every** asynchronous stage — pre-classify, the
+    write itself, post-write classification, and the fulfilled-order audit —
+    leaves the SQL, verification, log batch, and stored batch on the captured
+    exchange (77, and exchange A against a real database), and the other
+    exchange's under-cap listing is never bought;
+  - automatic sweeps and idle ticks stay on the exchange the eligibility probe
+    measured, and **Refresh Log (dry-run)** on the exchange it queried;
+  - a missing `buyback_report` resolves through the captured exchange's audit
+    rows, and an unconfirmed listing is logged `0x6`, never as a purchase;
+  - missing, malformed, and out-of-range Exchange IDs (`0`, `-5`, `1.5`, `01`,
+    `1e10`, `BIGINT` max + 1, and SQL-shaped values) are refused before any
+    bridge request or backup confirmation;
+  - a failed capture releases the shared automatic-operations lock, proven by a
+    later auto seed and auto buyback tick both running;
+  - batches stored without an `exchange_id` still render as
+    `Legacy exchange unknown`.
+
+### Security
+
+- Exchange IDs are re-validated as positive PostgreSQL `BIGINT` values inside
+  every buyback SQL builder. They are interpolated straight into the statement
+  and now arrive as arguments rather than from the validated selector, so each
+  builder re-checks the decimal form itself instead of trusting its caller.
 
 ## 0.13.2 - 2026-08-03
 
