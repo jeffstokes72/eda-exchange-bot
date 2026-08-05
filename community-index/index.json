@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-05T20:19:11Z",
+  "updatedAt": "2026-08-03T23:45:00Z",
   "addons": [
     {
       "id": "leadership-board-demo",
@@ -18,7 +18,7 @@
       "name": "EDA Exchange Bot",
       "description": "Easy Dune Admin exchange seeder controls for RedBlink Dune Docker Console.",
       "author": "n00bGames, jeffstokes72",
-      "version": "0.13.3",
+      "version": "0.13.2",
       "lifecycle": "active",
       "lifecycleMessage": "",
       "lifecycleUrl": "",

@@ -619,7 +619,8 @@ COMMIT;`;
     return buybackPlanValuesSql() || "(NULL::text,NULL::bigint,NULL::bigint)";
   }
 
-  function buildBuybackSql(exchangeId) {
+  function buildBuybackSql() {
+    const exchangeId = currentExchangeIdValue();
     const threshold = currentThreshold();
     const maxBuys = currentMaxBuys();
     const valuesSql = buybackPlanValuesSql();
@@ -712,7 +713,8 @@ COMMIT;`;
   // database.query (no backup is taken), so idle auto ticks are cheap on
   // self-hosted infrastructure; the write sweep only runs when this finds
   // at least one player listing at or below the threshold.
-  function buildBuybackEligibilitySql(exchangeId) {
+  function buildBuybackEligibilitySql() {
+    const exchangeId = currentExchangeIdValue();
     const valuesSql = buybackPlanValuesSql();
     if (!valuesSql) {
       return `SELECT '0' AS eligible_orders;`;
@@ -737,7 +739,8 @@ WHERE o.exchange_id = ${exchangeId}
 
   // Read-only per-listing classification for the Buyback Sweep Log dry-run.
   // Caps come only from the seeded plan — there is no live market average.
-  function buildBuybackClassifySql(exchangeId) {
+  function buildBuybackClassifySql() {
+    const exchangeId = currentExchangeIdValue();
     const valuesSql = buybackPlanValuesOrNullSql();
     return `WITH market_buy_plan(template_id, quality_level, max_unit_price) AS (
     VALUES
@@ -973,11 +976,6 @@ COMMIT;`;
     return Array.from(counts.entries()).map(([hex, count]) => `${hex}×${count}`).join(", ");
   }
 
-  function buybackLogExchangeLabel(batch) {
-    const exchangeId = String(batch?.exchange_id || "").trim();
-    return exchangeId ? `Exchange ${exchangeId}` : "Legacy exchange unknown";
-  }
-
   function renderBuybackLog() {
     if (!buybackLogEl || !buybackLogMetaEl) return;
     if (!buybackLogEntries.length) {
@@ -986,7 +984,7 @@ COMMIT;`;
       return;
     }
     const latest = buybackLogEntries[0];
-    buybackLogMetaEl.textContent = `${buybackLogEntries.length} log batch(es) stored. Latest: ${latest.source} — ${buybackLogExchangeLabel(latest)} at ${latest.at} — ${latest.summary || `${latest.entries?.length || 0} listings`}.`;
+    buybackLogMetaEl.textContent = `${buybackLogEntries.length} log batch(es) stored. Latest: ${latest.source} at ${latest.at} — ${latest.summary || `${latest.entries?.length || 0} listings`}.`;
     buybackLogEl.innerHTML = buybackLogEntries.map((batch) => {
       const rows = (batch.entries || []).map((entry) => {
         const codeClass = entry.result_code === 0 ? "ok" : "error";
@@ -1003,7 +1001,7 @@ COMMIT;`;
         </tr>`;
       }).join("");
       return `<div class="buyback-log-batch">
-        <h3>${escapeHtml(batch.source)} — ${escapeHtml(buybackLogExchangeLabel(batch))} <span class="muted">${escapeHtml(batch.at)}</span></h3>
+        <h3>${escapeHtml(batch.source)} <span class="muted">${escapeHtml(batch.at)}</span></h3>
         <p class="muted">${escapeHtml(batch.summary || "")}${batch.note ? ` — ${escapeHtml(batch.note)}` : ""}</p>
         <table>
           <thead><tr><th>Code</th><th>Result</th><th>Template</th><th>Grade</th><th>Ask/unit</th><th>Stack</th><th>Cap</th><th>Order</th><th>Detail</th></tr></thead>
@@ -1013,11 +1011,10 @@ COMMIT;`;
     }).join("");
   }
 
-  function appendBuybackLogBatch(entries, { source, exchangeId, note = "" } = {}) {
+  function appendBuybackLogBatch(entries, { source, note = "" } = {}) {
     const normalized = (entries || []).map((row) => normalizeBuybackLogRow(row)).filter(Boolean);
     buybackLogEntries.unshift({
       source: source || "Buyback",
-      exchange_id: String(exchangeId || ""),
       at: new Date().toLocaleString(),
       note,
       summary: `${normalized.length} listing(s); ${summarizeBuybackLogBatch(normalized) || "none"}`,
@@ -1028,12 +1025,12 @@ COMMIT;`;
     renderBuybackLog();
   }
 
-  async function queryBuybackClassification(exchangeId) {
-    const result = await requestBridge("database.query", { query: buildBuybackClassifySql(exchangeId) });
+  async function queryBuybackClassification() {
+    const result = await requestBridge("database.query", { query: buildBuybackClassifySql() });
     return (result?.rows || []).map((row) => normalizeBuybackLogRow(row)).filter(Boolean);
   }
 
-  async function resolveBuybackLogAfterWrite(beforeEntries, exchangeId) {
+  async function resolveBuybackLogAfterWrite(beforeEntries) {
     const report = extractBuybackReport(lastExecuteResult);
     if (report && Array.isArray(report.log)) {
       return report.log.map((row) => normalizeBuybackLogRow(row)).filter(Boolean);
@@ -1044,7 +1041,7 @@ COMMIT;`;
     // == bought by this sweep).
     let afterEntries = [];
     try {
-      afterEntries = await queryBuybackClassification(exchangeId);
+      afterEntries = await queryBuybackClassification();
     } catch {
       return beforeEntries;
     }
@@ -1129,48 +1126,42 @@ WHERE completion_type = 4
   }
 
   async function runBuybackSweep(label, options = {}) {
-    const exchangeId = options.exchangeId || currentExchangeIdValue();
     const confirmPrompt = options.confirmPrompt !== false;
     if (confirmPrompt && !confirm(`${label}? RedBlink will create a database backup before this write. This may take some time.`)) {
       return false;
     }
     let beforeEntries = [];
     try {
-      beforeEntries = await queryBuybackClassification(exchangeId);
+      beforeEntries = await queryBuybackClassification();
     } catch (error) {
       // Classification is best-effort; the write may still succeed and return a report.
       statusEl.className = "status";
       statusEl.textContent = `${label}: could not pre-classify listings (${error.message || error}); continuing with write...`;
     }
-    const ok = await runWrite(
-      label,
-      () => buildBuybackSql(exchangeId),
-      { ...options, confirmPrompt: false }
-    );
+    const ok = await runWrite(label, buildBuybackSql, { ...options, confirmPrompt: false });
     if (!ok) {
       if (beforeEntries.length) {
-        appendBuybackLogBatch(beforeEntries, { source: label, exchangeId, note: "sweep did not complete; showing pre-classify codes" });
+        appendBuybackLogBatch(beforeEntries, { source: label, note: "sweep did not complete; showing pre-classify codes" });
       }
       return false;
     }
     try {
-      const entries = await resolveBuybackLogAfterWrite(beforeEntries, exchangeId);
-      appendBuybackLogBatch(entries, { source: label, exchangeId });
+      const entries = await resolveBuybackLogAfterWrite(beforeEntries);
+      appendBuybackLogBatch(entries, { source: label });
       const bought = entries.filter((entry) => entry.result_code === 0 && entry.result_label === "success").length;
       const blocked = entries.length - bought;
       statusEl.className = "status ok";
       statusEl.textContent = `${label} complete. ${bought.toLocaleString()} bought, ${blocked.toLocaleString()} not bought — see Buyback Sweep Log.`;
     } catch (error) {
-      if (beforeEntries.length) appendBuybackLogBatch(beforeEntries, { source: label, exchangeId, note: `post-log failed: ${error.message || error}` });
+      if (beforeEntries.length) appendBuybackLogBatch(beforeEntries, { source: label, note: `post-log failed: ${error.message || error}` });
     }
     return true;
   }
 
   async function refreshBuybackLogDryRun() {
-    const exchangeId = currentExchangeIdValue();
     try {
-      const entries = await queryBuybackClassification(exchangeId);
-      appendBuybackLogBatch(entries, { source: "Dry-run classify", exchangeId, note: "read-only; nothing purchased" });
+      const entries = await queryBuybackClassification();
+      appendBuybackLogBatch(entries, { source: "Dry-run classify", note: "read-only; nothing purchased" });
       statusEl.className = "status ok";
       statusEl.textContent = `Buyback log refreshed: ${entries.length.toLocaleString()} player sell listing(s) classified (dry-run).`;
     } catch (error) {
@@ -1223,20 +1214,19 @@ WHERE completion_type = 4
   async function runAutoBuyback() {
     autoRunning = true;
     nextAutoRunAt = Date.now() + currentAutoIntervalMinutes() * 60000;
-    const exchangeId = currentExchangeIdValue();
     try {
-      const checkResult = await requestBridge("database.query", { query: buildBuybackEligibilitySql(exchangeId) });
+      const checkResult = await requestBridge("database.query", { query: buildBuybackEligibilitySql() });
       const eligible = Number(checkResult?.rows?.[0]?.eligible_orders || 0);
       if (!Number.isFinite(eligible) || eligible <= 0) {
         try {
-          const entries = await queryBuybackClassification(exchangeId);
-          appendBuybackLogBatch(entries, { source: "Auto buyback (idle)", exchangeId, note: "nothing eligible; write skipped" });
+          const entries = await queryBuybackClassification();
+          appendBuybackLogBatch(entries, { source: "Auto buyback (idle)", note: "nothing eligible; write skipped" });
         } catch { /* log is best-effort on idle ticks */ }
         setAutoStatus(`Auto buyback: nothing eligible at ${currentThreshold()}% threshold; skipped the write (and its backup). ${describeMarketOpsSchedule()}.`);
         return;
       }
       setAutoStatus(`Auto buyback: ${eligible.toLocaleString()} eligible player listings found; running sweep...`);
-      const ok = await runBuybackSweep("Auto buyback sweep", { confirmPrompt: false, exchangeId });
+      const ok = await runBuybackSweep("Auto buyback sweep", { confirmPrompt: false });
       if (ok) {
         setAutoStatus(`Auto buyback: sweep finished at ${new Date().toLocaleTimeString()}. ${describeMarketOpsSchedule()}.`, "status ok");
       } else {

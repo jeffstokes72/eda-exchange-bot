@@ -4,19 +4,6 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
-## 0.13.3 - 2026-08-05
-
-### Fixed
-
-- **Buyback operations stay scoped to their starting exchange**: manual and
-  automatic sweeps, idle classifications, and dry-run log refreshes capture
-  the selected Exchange ID once. Classification, eligibility, write, and
-  post-write verification now use that same ID even if the selector changes
-  while a bridge request is pending.
-- **Buyback log batches identify their exchange**: every new batch stores and
-  displays its Exchange ID in both the heading and latest-log summary. Logs
-  saved by earlier releases remain visible as "Legacy exchange unknown."
-
 ## 0.13.2 - 2026-08-03
 
 ### Fixed
