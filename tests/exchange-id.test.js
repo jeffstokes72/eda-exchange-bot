@@ -89,3 +89,56 @@ test("buyback SQL targets the exact 64-bit exchange id", async () => {
   assert.ok(sql.includes(`o.exchange_id = ${BIGINT_MAX}`), "buyback SQL must filter on the exact id");
   assert.ok(!sql.includes("e+"), "buyback SQL must not contain scientific notation ids");
 });
+
+test("buyback sweep keeps its captured exchange while classification is pending", async () => {
+  const harness = await createHarness();
+  await harness.loadExchangesWithRows([
+    exchangeRow({ exchange_id: "77" }),
+    exchangeRow({ exchange_id: "88" })
+  ]);
+  assert.equal(harness.selectedExchangeId(), "77");
+
+  const classificationRow = {
+    order_id: "701",
+    template_id: "TestOre",
+    quality_level: "0",
+    item_price: "250",
+    stack_size: "100",
+    max_unit_price: "300",
+    result_code: "0",
+    result_label: "eligible",
+    detail: "ask 250 <= cap 300"
+  };
+  let finishClassification;
+  const pendingClassification = new Promise((resolve) => {
+    finishClassification = resolve;
+  });
+  let classificationRequests = 0;
+  harness.onQuery = async ({ query }) => {
+    if (String(query).includes("result_code") && String(query).includes("price too high")) {
+      classificationRequests += 1;
+      if (classificationRequests === 1) return pendingClassification;
+    }
+    return { rows: [] };
+  };
+  harness.onExecute = async () => ({
+    rows: [{ buyback_report: JSON.stringify({ log: [{ ...classificationRow, result_label: "success" }] }) }]
+  });
+
+  harness.el("buySweep").click();
+  await harness.waitFor(() => classificationRequests === 1, { label: "paused buyback classification" });
+  harness.setValue("exchangeId", "88");
+  finishClassification({ rows: [classificationRow] });
+
+  await harness.waitFor(() => harness.executedSql().length === 1, { label: "captured-exchange buyback write" });
+  await harness.waitFor(() => harness.el("buybackLog").textContent.includes("Exchange 77"), { label: "exchange-scoped log heading" });
+
+  const sql = harness.executedSql()[0];
+  assert.ok(sql.includes("o.exchange_id = 77"), "write SQL must retain the exchange selected at sweep start");
+  assert.ok(!sql.includes("o.exchange_id = 88"), "write SQL must not follow a selector change during classification");
+  assert.match(harness.el("buybackLog").querySelector("h3").textContent, /Exchange 77/);
+  assert.match(harness.el("buybackLogMeta").textContent, /Exchange 77/);
+
+  const stored = JSON.parse(harness.window.localStorage.getItem("eda-exchange-bot.buyback-log"));
+  assert.equal(stored[0].exchange_id, "77");
+});
