@@ -71,6 +71,7 @@
         <button id="clearBuybackLog" type="button" class="secondary">Clear Log</button>
       </div>
       <p class="muted">Codes: <code>0x0</code> success, <code>0x1</code> price too high, <code>0x2</code> no reference price, <code>0x3</code> invalid price, <code>0x4</code> invalid stack, <code>0x5</code> max buys limit, <code>0x6</code> skipped locked.</p>
+      <p class="muted">Each batch is labeled with the exchange it ran against, and a running sweep keeps that exchange even if you change the selector. Batches stored before 0.13.3 show <code>Legacy exchange unknown</code>.</p>
       <div id="buybackLogMeta" class="status">No buyback sweep attempts logged yet.</div>
       <div id="buybackLog" class="buyback-log"></div>
     </section>

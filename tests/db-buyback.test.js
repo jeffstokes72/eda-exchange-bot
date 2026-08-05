@@ -157,6 +157,62 @@ test("buyback sweeps against PostgreSQL", { skip: !available && "psql is not ava
     assert.match(logText, /UnknownThing/);
   });
 
+  await t.test("a sweep interrupted by an exchange switch still buys only its own exchange", async () => {
+    // End-to-end form of the mid-flight scoping bug: the selector moves to
+    // exchange B while the pre-sweep classification is in flight. The write
+    // must consume A's eligible listing and leave B's under-cap listing
+    // (700005, 100/unit) alone.
+    db.execSql(DB_NAME, `
+      INSERT INTO dune.items (id, inventory_id, stack_size, position_index, template_id, quality_level) VALUES
+        (800070, ${EX_A}, 100, 9070, 'TestOre', 0);
+      INSERT INTO dune.dune_exchange_orders (id, exchange_id, access_point_id, owner_id, is_npc_order, expiration_time, template_id, item_price, quality_level, item_id)
+      VALUES (700070, ${EX_A}, ${AP_A}, ${PLAYER_ID}, FALSE, 123456, 'TestOre', 150, 0, 800070);
+      INSERT INTO dune.dune_exchange_sell_orders (order_id, initial_stack_size, wear_normalized_price) VALUES (700070, 100, 150);`);
+
+    const baseQuery = harness.onQuery;
+    let classifications = 0;
+    let releaseClassify = () => {};
+    const classifyPaused = new Promise((resolve) => { releaseClassify = resolve; });
+    harness.onQuery = async (payload) => {
+      const text = String(payload?.query || "");
+      if (text.includes("result_label") && text.includes("ORDER BY")) {
+        classifications += 1;
+        if (classifications === 1) await classifyPaused;
+      }
+      return baseQuery(payload);
+    };
+
+    const writesBefore = harness.executedSql().length;
+    const batchesBefore = harness.el("buybackLog").querySelectorAll(".buyback-log-batch").length;
+    try {
+      harness.el("buySweep").click();
+      await harness.waitFor(() => classifications === 1, { label: "pre-sweep classification" });
+      harness.el("exchangeId").value = EX_B;
+      releaseClassify();
+      await harness.waitFor(
+        () => harness.executedSql().length > writesBefore,
+        { label: "buyback write" }
+      );
+      await harness.waitFor(
+        () => harness.el("buybackLog").querySelectorAll(".buyback-log-batch").length > batchesBefore,
+        { label: "exchange-labeled log batch" }
+      );
+    } finally {
+      harness.onQuery = baseQuery;
+      harness.el("exchangeId").value = EX_A;
+    }
+
+    const sweepSql = harness.executedSql().at(-1);
+    assert.ok(sweepSql.includes(`o.exchange_id = ${EX_A}`), "the write must stay on the exchange the sweep started with");
+    assert.ok(!sweepSql.includes(`o.exchange_id = ${EX_B}`), "the write must not follow the selector to exchange B");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700070"), "0", "exchange A's eligible listing must be bought");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_orders WHERE id = 700005"), "1", "exchange B's listing must survive a sweep that started on exchange A");
+    assert.equal(db.queryOne(DB_NAME, "SELECT COUNT(*) FROM dune.dune_exchange_fulfilled_orders WHERE original_order_id = 700005"), "0", "exchange B's seller must not be paid");
+    const newestBatch = harness.el("buybackLog").querySelector(".buyback-log-batch");
+    assert.match(newestBatch.querySelector("h3").textContent, new RegExp(`Exchange ${EX_A}`), "the log batch names exchange A");
+    assert.doesNotMatch(newestBatch.textContent, new RegExp(`Exchange ${EX_B}`), "the log batch belongs to exchange A alone");
+  });
+
   await t.test("manual sweep buys grade listings at true 60% of seeded grade price", async () => {
     // Regression: deriving the cap from q0 × grade_mult undershot 60% of the
     // seeded q3 price (4500 vs 4800). A listing at 4600 must be bought.
