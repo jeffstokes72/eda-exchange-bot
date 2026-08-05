@@ -47,7 +47,11 @@ them.
   proc cannot purge an uncollected "Take Solari" payment.
 - **Buyback Sweep Log**: in-page log of every attempted listing with result
   codes (`0x0` success, `0x1` price too high, `0x2` no reference price, …)
-  plus a dry-run Refresh Log for diagnosing why posts are not bought.
+  plus a dry-run Refresh Log for diagnosing why posts are not bought. Each
+  batch is labeled with the exchange it classified (batches stored before
+  0.13.3 show `Legacy exchange unknown`), and every sweep captures the selected
+  exchange once, so changing the selector mid-run cannot retarget the write or
+  mix two exchanges into one log.
 - **Unattended buyback (server-side schedule)**: on consoles with addon
   scheduler support
   ([Red-Blink/dune-awakening-selfhost-docker#103](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/103)),
@@ -215,17 +219,17 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.13.2
-   git push origin v0.13.2
+   git tag v0.13.3
+   git push origin v0.13.3
    ```
 
-The tag **must** be `v` + `addon.json.version` (for example `v0.13.2`). The
+The tag **must** be `v` + `addon.json.version` (for example `v0.13.3`). The
 release workflow refuses a mismatched tag. GitHub Actions validates the addon,
 packages `addon.json` + `web/`, creates the GitHub Release, and uploads:
 
 ```text
-eda-exchange-bot-0.13.2.zip
-eda-exchange-bot-0.13.2.zip.sha256
+eda-exchange-bot-0.13.3.zip
+eda-exchange-bot-0.13.3.zip.sha256
 ```
 
 Do not use GitHub's automatic source archives as the install package.
@@ -235,7 +239,7 @@ Do not use GitHub's automatic source archives as the install package.
 Staging copies for the catalog PR live in `community-index/` (see that
 README). Per [RedBlink publishing docs](https://github.com/Red-Blink/dune-docker-addon-template/blob/main/docs/publishing.md):
 
-1. Publish the `v0.13.2` release first and copy the release asset's SHA-256
+1. Publish the `v0.13.3` release first and copy the release asset's SHA-256
    into `community-index/eda-exchange-bot.json`.
 2. Open a pull request to
    [Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)

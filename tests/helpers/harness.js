@@ -190,6 +190,12 @@ async function createHarness(options = {}) {
   window.Date.now = () => realNow() + timeOffset;
   harness.advanceTime = (ms) => { timeOffset += ms; };
 
+  // Pre-seeded storage lets tests exercise restore paths, e.g. buyback log
+  // batches written by an older addon version.
+  for (const [key, value] of Object.entries(options.localStorage || {})) {
+    window.localStorage.setItem(key, value);
+  }
+
   window.eval(addonSource);
   await harness.waitFor(
     () => harness.statusText().includes("Preview ready") || harness.el("status").className.includes("error"),

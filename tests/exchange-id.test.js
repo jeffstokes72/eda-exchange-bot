@@ -89,3 +89,98 @@ test("buyback SQL targets the exact 64-bit exchange id", async () => {
   assert.ok(sql.includes(`o.exchange_id = ${BIGINT_MAX}`), "buyback SQL must filter on the exact id");
   assert.ok(!sql.includes("e+"), "buyback SQL must not contain scientific notation ids");
 });
+
+// A buyback sweep is a chain of awaits (pre-classify, write, post-write
+// verification, log batch). Re-reading the selector at each step let an
+// exchange switch mid-sweep write to one exchange while verifying and logging
+// another; the exchange id is now captured once per operation.
+test("a sweep keeps its captured exchange when the selector changes mid-flight", async () => {
+  const harness = await createHarness();
+  const rows = [
+    exchangeRow({ exchange_id: "77", access_point_count: "1" }),
+    exchangeRow({ exchange_id: "88", access_point_count: "1" })
+  ];
+  await harness.loadExchangesWithRows(rows);
+  harness.el("exchangeId").value = "77";
+
+  const classifyQueries = [];
+  let releaseClassify = () => {};
+  const classifyPaused = new Promise((resolve) => { releaseClassify = resolve; });
+
+  harness.onQuery = async ({ query }) => {
+    const text = String(query || "");
+    if (text.includes("known_exchanges")) return { rows };
+    if (text.includes("result_label")) {
+      classifyQueries.push(text);
+      if (classifyQueries.length === 1) {
+        // Hold the pre-sweep classification open so the selector can move
+        // while the sweep is mid-flight.
+        await classifyPaused;
+        return {
+          rows: [{
+            order_id: "555", template_id: "TestOre", quality_level: "0", item_price: "250",
+            stack_size: "100", max_unit_price: "300", result_code: "0",
+            result_label: "eligible", detail: "ask 250 <= cap 300"
+          }]
+        };
+      }
+      // Post-write classification: the bought listing is gone.
+      return { rows: [] };
+    }
+    if (text.includes("dune_exchange_fulfilled_orders")) return { rows: [{ order_id: "555" }] };
+    return { rows: [] };
+  };
+  // A bridge that discards execute SELECT rows, so the sweep also runs the
+  // post-write classify/verify fallback.
+  harness.onExecute = async () => ({ rows: [] });
+
+  harness.el("buySweep").click();
+  await harness.waitFor(() => classifyQueries.length === 1, { label: "pre-sweep classification" });
+
+  harness.el("exchangeId").value = "88";
+  releaseClassify();
+
+  await harness.waitFor(() => harness.executedSql().length > 0, { label: "buyback write" });
+  await harness.waitFor(() => harness.el("buybackLog").textContent.includes("0x0"), { label: "buyback log batch" });
+
+  const sql = harness.executedSql().at(-1);
+  assert.ok(sql.includes("o.exchange_id = 77"), `write SQL must stay on exchange 77: ${sql.slice(0, 400)}`);
+  assert.ok(!sql.includes("o.exchange_id = 88"), "write SQL must not target the newly selected exchange");
+  assert.equal(harness.selectedExchangeId(), "88", "the selector itself still shows the admin's new choice");
+
+  assert.ok(classifyQueries.length >= 2, "sweep must classify before and after the write");
+  for (const query of classifyQueries) {
+    assert.ok(query.includes("o.exchange_id = 77"), "every classification must stay on the captured exchange");
+    assert.ok(!query.includes("o.exchange_id = 88"), "no classification may follow the selector");
+  }
+
+  const logText = harness.el("buybackLog").textContent;
+  assert.match(logText, /Exchange 77/, "log batch heading must name the swept exchange");
+  assert.doesNotMatch(logText, /Exchange 88/, "log batch must not be attributed to another exchange");
+  assert.match(harness.el("buybackLogMeta").textContent, /Exchange 77/);
+  const stored = JSON.parse(harness.window.localStorage.getItem("eda-exchange-bot.buyback-log"));
+  assert.equal(stored[0].exchange_id, "77", "stored batches keep the exchange they classified");
+});
+
+test("log batches stored without an exchange id stay visible as legacy", async () => {
+  const harness = await createHarness({
+    localStorage: {
+      "eda-exchange-bot.buyback-log": JSON.stringify([{
+        source: "Run buyback sweep",
+        at: "1/1/2026, 12:00:00 AM",
+        note: "",
+        summary: "1 listing(s); 0x1×1",
+        entries: [{
+          order_id: "1", template_id: "TestOre", quality_level: "0", item_price: "400",
+          stack_size: "100", max_unit_price: "300", result_code: 1, result_hex: "0x1",
+          result_label: "price too high", detail: "ask 400 > cap 300"
+        }]
+      }])
+    }
+  });
+
+  const logText = harness.el("buybackLog").textContent;
+  assert.match(logText, /Legacy exchange unknown/, "pre-0.13.3 batches must still render");
+  assert.match(logText, /price too high/);
+  assert.match(harness.el("buybackLogMeta").textContent, /Legacy exchange unknown/);
+});

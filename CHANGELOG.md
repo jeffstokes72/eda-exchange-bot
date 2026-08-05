@@ -4,6 +4,30 @@ Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
 maintainer review) and n00bGames (addon author), documenting what changed and
 why.
 
+## 0.13.3 - 2026-08-05
+
+### Fixed
+
+- **Buyback operations no longer follow the exchange selector mid-run**: a sweep
+  is a chain of awaits (pre-classify → write → post-write verify → log), and
+  each step re-read the dropdown. Switching exchanges while a classification
+  request was in flight could write to one exchange and verify or log another,
+  mixing results from several exchanges into one log. Each operation now
+  captures the exchange id once (`options.exchangeId || currentExchangeIdValue()`)
+  and passes it explicitly to `buildBuybackSql`, `buildBuybackEligibilitySql`,
+  `buildBuybackClassifySql`, `queryBuybackClassification`, and
+  `resolveBuybackLogAfterWrite`. Manual sweeps, automatic sweeps (captured
+  before the eligibility probe), idle-tick classifications, and
+  **Refresh Log (dry-run)** all use the captured value.
+
+### Added
+
+- **Buyback Sweep Log records its exchange**: log batches store `exchange_id`
+  and every batch heading plus the latest-log summary shows `Exchange <id>`.
+  Batches stored by earlier versions stay visible and are labeled
+  `Legacy exchange unknown`. Sweep confirmations and status lines name the
+  exchange being written to.
+
 ## 0.13.2 - 2026-08-03
 
 ### Fixed
