@@ -10,6 +10,18 @@ standalone Easy Dune Admin panel.
 Built from the
 [dune-docker-addon-template](https://github.com/Red-Blink/dune-docker-addon-template).
 
+## Authors
+
+- **jeffstokes72** — author and maintainer of this addon: the RedBlink Console
+  addon, its seed-plan generator, buyback logic, and test suite.
+- **n00bGames** — Easy Dune Admin, whose exchange seeder and market bot behavior
+  this addon ports.
+
+Both are the addon's `author` field in [`addon.json`](addon.json) and in the
+community index entry, and both are credited on the addon page itself. The
+upstream market bot lives in [Icehunter/dune-admin
+`internal/marketbot`](https://github.com/Icehunter/dune-admin/tree/main/internal/marketbot).
+
 See the [CHANGELOG](CHANGELOG.md) for what changed in each release, including
 the fixes ported from Easy Dune Admin's market bot and the reasoning behind
 them.
@@ -47,7 +59,12 @@ them.
   proc cannot purge an uncollected "Take Solari" payment.
 - **Buyback Sweep Log**: in-page log of every attempted listing with result
   codes (`0x0` success, `0x1` price too high, `0x2` no reference price, …)
-  plus a dry-run Refresh Log for diagnosing why posts are not bought.
+  plus a dry-run Refresh Log for diagnosing why posts are not bought. Each
+  batch is labeled with the Exchange ID it ran against, and an operation keeps
+  that exchange (and the multiplier / threshold / max buys it started with)
+  even if the selector changes while a request is in flight, so batches from
+  different exchanges never mix. Batches stored before 0.13.3 show
+  `Legacy exchange unknown`.
 - **Unattended buyback (server-side schedule)**: on consoles with addon
   scheduler support
   ([Red-Blink/dune-awakening-selfhost-docker#103](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/103)),
@@ -215,17 +232,17 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.13.2
-   git push origin v0.13.2
+   git tag v0.13.3
+   git push origin v0.13.3
    ```
 
-The tag **must** be `v` + `addon.json.version` (for example `v0.13.2`). The
+The tag **must** be `v` + `addon.json.version` (for example `v0.13.3`). The
 release workflow refuses a mismatched tag. GitHub Actions validates the addon,
 packages `addon.json` + `web/`, creates the GitHub Release, and uploads:
 
 ```text
-eda-exchange-bot-0.13.2.zip
-eda-exchange-bot-0.13.2.zip.sha256
+eda-exchange-bot-0.13.3.zip
+eda-exchange-bot-0.13.3.zip.sha256
 ```
 
 Do not use GitHub's automatic source archives as the install package.
@@ -235,7 +252,7 @@ Do not use GitHub's automatic source archives as the install package.
 Staging copies for the catalog PR live in `community-index/` (see that
 README). Per [RedBlink publishing docs](https://github.com/Red-Blink/dune-docker-addon-template/blob/main/docs/publishing.md):
 
-1. Publish the `v0.13.2` release first and copy the release asset's SHA-256
+1. Publish the `v0.13.3` release first and copy the release asset's SHA-256
    into `community-index/eda-exchange-bot.json`.
 2. Open a pull request to
    [Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)

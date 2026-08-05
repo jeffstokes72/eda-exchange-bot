@@ -1,8 +1,60 @@
 # Changelog
 
-Notable changes to the EDA Exchange Bot addon. Written for RedBlink (console
-maintainer review) and n00bGames (addon author), documenting what changed and
-why.
+Notable changes to the EDA Exchange Bot addon, authored and maintained by
+jeffstokes72 with n00bGames (Easy Dune Admin). Written for RedBlink (console
+maintainer review) and both addon authors, documenting what changed and why.
+
+## 0.13.3 - 2026-08-05
+
+Addresses RedBlink's review of the Buyback Sweep Log
+([dune-docker-addons#21](https://github.com/Red-Blink/dune-docker-addons/pull/21)):
+sweep logs were not scoped to an Exchange ID, so batches from several exchanges
+could be mixed and a selector change mid-request could retarget the write or
+verification phase.
+
+### Fixed
+
+- **A buyback operation stays on the exchange it started with**: a sweep is a
+  chain of awaits (pre-classify → write → post-write verification → log batch)
+  and every step re-read the exchange selector. Each operation now captures the
+  Exchange ID once, before its first bridge request, and passes it explicitly to
+  `buildBuybackSql`, `buildBuybackEligibilitySql`, `buildBuybackClassifySql`,
+  `queryBuybackClassification`, and `resolveBuybackLogAfterWrite`. Manual
+  sweeps, automatic sweeps (captured *before* the eligibility probe, then handed
+  to the sweep it triggers), idle-tick classifications, and **Refresh Log
+  (dry-run)** all use the captured value. Changing exchanges while a sweep runs
+  no longer moves the write, the verification, or the log batch.
+- **The log batch cannot be mislabeled by a mid-sweep settings change**: price
+  multiplier, buyback threshold, and Max Buys Per Sweep are captured with the
+  Exchange ID, so the caps a batch was classified against are the caps the write
+  used, and leftover listings are ranked `0x5` / `0x6` against the write's own
+  Max Buys.
+- **Buyback actions with no usable exchange report the error**: the exchange
+  capture is inside each operation's error handling, so a missing or unusable
+  selection shows "Choose an exchange before running this action." instead of
+  rejecting silently. An automatic tick that hits this always releases its
+  in-flight lock, which previously could leave every later automatic buyback,
+  seed, and cleanup tick skipped for the rest of the session.
+
+### Added
+
+- **Every buyback log batch records and shows its exchange**: batches store
+  `exchange_id` and display `Exchange <id>` in the batch heading and the
+  latest-log summary. Batches saved by earlier versions stay visible and are
+  labeled `Legacy exchange unknown`. Sweep confirmations and status lines name
+  the exchange being written to.
+- **Regression coverage** in `tests/buyback-exchange-scope.test.js` plus a
+  PostgreSQL-backed end-to-end case: a sweep started on exchange 77 (and on a
+  real database, exchange A) keeps its SQL, verification, log batch, and stored
+  batch on that exchange after the selector moves to 88 / exchange B, and the
+  other exchange's under-cap listing is never bought.
+
+### Security
+
+- Exchange IDs are re-validated inside every buyback SQL builder. They are
+  interpolated straight into the statement, and now arrive as arguments rather
+  than from the validated selector, so each builder re-checks the decimal
+  BIGINT form itself.
 
 ## 0.13.2 - 2026-08-03
 
