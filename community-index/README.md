@@ -1,4 +1,4 @@
-# Community index update for EDA Exchange Bot 0.13.3
+# Community index update for EDA Exchange Bot 0.13.4
 
 Staging copies of the two files that
 [Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)
@@ -9,19 +9,20 @@ and
 docs.
 
 `index.json` here updates only the `eda-exchange-bot` entry and `updatedAt`
-for 0.13.3.
+for 0.13.4.
 
-## Release checklist for 0.13.3
+## Release checklist for 0.13.4
 
-1. Current-version fields are **0.13.3**.
-2. Push tag `v0.13.3` so the Release workflow builds
-   `eda-exchange-bot-0.13.3.zip` with its `.sha256` asset:
-   https://github.com/jeffstokes72/eda-exchange-bot/releases/tag/v0.13.3
-   0.13.3 replaces an earlier v0.13.3 build that was rolled back, so the
-   workflow re-uploads the release assets with `--clobber`.
+1. Current-version fields are **0.13.4**.
+2. Push tag `v0.13.4` so the Release workflow builds
+   `eda-exchange-bot-0.13.4.zip` with its `.sha256` asset:
+   https://github.com/jeffstokes72/eda-exchange-bot/releases/tag/v0.13.4
+   0.13.4 supersedes v0.13.3, which was rolled back before it reached the
+   catalog. PR #21 still points at v0.13.2, so this update moves it straight
+   from 0.13.2 to 0.13.4.
 3. Copy the published asset's checksum into `eda-exchange-bot.json` `sha256`
    (still empty until the release exists). Verify with
-   `sha256sum eda-exchange-bot-0.13.3.zip` against the `.sha256` asset.
+   `sha256sum eda-exchange-bot-0.13.4.zip` against the `.sha256` asset.
 
 ## Submitting to Red-Blink/dune-docker-addons
 
@@ -32,10 +33,10 @@ for 0.13.3.
    release).
 3. In `index.json`, update **only** the `eda-exchange-bot` entry and
    `updatedAt`. Do not overwrite the whole file.
-4. Keep `downloadUrl` pinned to the `v0.13.3` release asset (not
+4. Keep `downloadUrl` pinned to the `v0.13.4` release asset (not
    `releases/latest/...`).
 5. Open a PR to `Red-Blink/dune-docker-addons` titled
-   **Update EDA Exchange Bot to 0.13.3**.
+   **Update EDA Exchange Bot to 0.13.4**.
 
 Permissions stay structured and include `scheduler:server`. Lifecycle fields
 stay in `index.json` only (not in this addon's `addon.json`).

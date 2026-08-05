@@ -33,8 +33,11 @@ function runPsql(extraArgs, input) {
     input,
     maxBuffer: 64 * 1024 * 1024
   });
-  if (result.status !== 0) {
-    throw new Error((result.stderr || result.stdout || "psql failed").trim());
+  // result.error is set when psql could not be spawned at all; without it a
+  // failure to exec reports as a bare "psql failed" with nothing to debug.
+  if (result.status !== 0 || result.error) {
+    const detail = result.stderr || result.stdout || result.error?.message || "";
+    throw new Error(`psql failed${detail ? `: ${detail.trim()}` : ""}`);
   }
   return result.stdout;
 }
@@ -69,8 +72,11 @@ function normalizeValue(column, value) {
   return value;
 }
 
+// SQL goes in on stdin, never as a -c argument: Linux caps a single argv entry
+// at 128 KB and the buyback classify/eligibility queries carry the whole seed
+// plan's cap list (~120 KB), so -c fails to exec before psql even starts.
 function queryObjects(sql) {
-  const out = runPsql(["--csv", "-c", sql]);
+  const out = runPsql(["--csv", "-f", "-"], sql);
   const lines = out.split("\n").filter((line) => line.length > 0);
   if (lines.length === 0) return [];
   const header = parseCsvLine(lines[0]);

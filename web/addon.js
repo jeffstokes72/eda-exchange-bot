@@ -990,7 +990,7 @@ COMMIT;`;
   }
 
   // Batches are labeled with the exchange they classified so switching
-  // exchanges never mixes results. Batches stored before 0.13.3 have no
+  // exchanges never mixes results. Batches stored before 0.13.4 have no
   // exchange id and there is no way to recover it after the fact.
   function buybackLogExchangeLabel(batch) {
     const exchangeId = normalizeExchangeId(batch?.exchange_id);
@@ -1095,10 +1095,14 @@ COMMIT;`;
     const confirmedBought = new Set();
     if (vanishedEligibleIds.length) {
       try {
-        const confirmSql = `SELECT original_order_id::text AS order_id
-FROM dune.dune_exchange_fulfilled_orders
-WHERE completion_type = 4
-  AND original_order_id IN (${vanishedEligibleIds.join(",")})`;
+        // Joined back to the payment order so this last verification step is
+        // scoped to the captured exchange too, not just to order ids.
+        const confirmSql = `SELECT f.original_order_id::text AS order_id
+FROM dune.dune_exchange_fulfilled_orders f
+JOIN dune.dune_exchange_orders o ON o.id = f.order_id
+WHERE f.completion_type = 4
+  AND o.exchange_id = ${requireExchangeId(exchangeId)}
+  AND f.original_order_id IN (${vanishedEligibleIds.join(",")})`;
         const confirmResult = await requestBridge("database.query", { query: confirmSql });
         for (const row of confirmResult?.rows || []) {
           if (row?.order_id != null) confirmedBought.add(String(row.order_id));

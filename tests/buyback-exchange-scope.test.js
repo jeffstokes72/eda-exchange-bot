@@ -13,6 +13,10 @@ const { createHarness, exchangeRow } = require("./helpers/harness");
 
 const CAPTURED = "77";
 const SWITCHED = "88";
+const SWITCHED_AGAIN = "99";
+// Ids the selector is moved to mid-operation. No generated statement may ever
+// filter on one of them.
+const NEVER_TARGETED = [SWITCHED, SWITCHED_AGAIN];
 
 // Matches the read-only classification query (dry-run log + pre/post sweep).
 // The write sweep goes through database.execute, not database.query.
@@ -57,9 +61,30 @@ function selectExchange(harness, exchangeId) {
   harness.el("exchangeId").value = exchangeId;
 }
 
+function logBatches(harness) {
+  return Array.from(harness.el("buybackLog").querySelectorAll(".buyback-log-batch"));
+}
+
+// The empty-log placeholder lists every result code, so waiting on log text
+// alone would match before a batch has rendered.
+async function waitForBatches(harness, count) {
+  await harness.waitFor(() => logBatches(harness).length >= count, { label: `${count} rendered log batch(es)` });
+  return logBatches(harness);
+}
+
+function batchText(harness, index = 0) {
+  return logBatches(harness)[index].textContent;
+}
+
+function batchHeading(harness, index = 0) {
+  return logBatches(harness)[index].querySelector("h3").textContent;
+}
+
 function assertScopedTo(query, label) {
   assert.ok(query.includes(`o.exchange_id = ${CAPTURED}`), `${label} must stay on exchange ${CAPTURED}`);
-  assert.ok(!query.includes(`o.exchange_id = ${SWITCHED}`), `${label} must not follow the selector to ${SWITCHED}`);
+  for (const other of NEVER_TARGETED) {
+    assert.ok(!query.includes(`o.exchange_id = ${other}`), `${label} must not follow the selector to ${other}`);
+  }
 }
 
 test("a sweep keeps its captured exchange when the selector changes mid-flight", async () => {
@@ -97,7 +122,7 @@ test("a sweep keeps its captured exchange when the selector changes mid-flight",
   preClassify.release();
 
   await harness.waitFor(() => harness.executedSql().length === 1, { label: "buyback write" });
-  await harness.waitFor(() => harness.el("buybackLog").textContent.includes("0x0"), { label: "buyback log batch" });
+  await waitForBatches(harness, 1);
 
   assertScopedTo(harness.executedSql()[0], "write SQL");
   assert.equal(harness.selectedExchangeId(), SWITCHED, "the selector itself still shows the admin's new choice");
@@ -105,14 +130,216 @@ test("a sweep keeps its captured exchange when the selector changes mid-flight",
   for (const query of classifyQueries) assertScopedTo(query, "classification");
   assert.equal(confirmQueries.length, 1, "the vanished listing is confirmed through the fulfilled-order audit");
 
-  const logText = harness.el("buybackLog").textContent;
-  assert.match(logText, /Exchange 77/, "the batch heading names the swept exchange");
+  const logText = batchText(harness);
+  assert.match(batchHeading(harness), /Exchange 77/, "the batch heading names the swept exchange");
   assert.doesNotMatch(logText, /Exchange 88/, "the batch is never attributed to another exchange");
+  assert.match(logText, /0x0/, "the confirmed listing is logged as bought");
   assert.match(harness.el("buybackLogMeta").textContent, /Exchange 77/, "the latest-log summary names the exchange");
   assert.match(harness.statusText(), /complete on exchange 77/);
 
   const stored = JSON.parse(harness.window.localStorage.getItem("eda-exchange-bot.buyback-log"));
   assert.equal(stored[0].exchange_id, CAPTURED, "stored batches keep the exchange they classified");
+});
+
+test("the selector may change during every asynchronous stage without moving the sweep", async () => {
+  // One sweep, one selector move per await: pre-classify, the write itself,
+  // and the post-write verification (classify, then the fulfilled-order audit).
+  const harness = await createHarness();
+  await harness.loadExchangesWithRows([
+    exchangeRow({ exchange_id: CAPTURED, access_point_count: "1" }),
+    exchangeRow({ exchange_id: SWITCHED, access_point_count: "1" }),
+    exchangeRow({ exchange_id: SWITCHED_AGAIN, access_point_count: "1" })
+  ]);
+  assert.equal(harness.selectedExchangeId(), CAPTURED);
+
+  const classifyQueries = [];
+  const confirmQueries = [];
+  const writes = [];
+  const preClassify = pausable();
+  const write = pausable();
+  const postClassify = pausable();
+
+  harness.onQuery = async ({ query }) => {
+    const text = String(query || "");
+    if (isClassifyQuery(text)) {
+      classifyQueries.push(text);
+      if (classifyQueries.length === 1) {
+        await preClassify.paused;
+        return { rows: [eligibleRow()] };
+      }
+      await postClassify.paused;
+      return { rows: [] };
+    }
+    if (text.includes("dune_exchange_fulfilled_orders")) {
+      confirmQueries.push(text);
+      return { rows: [{ order_id: "555" }] };
+    }
+    return { rows: [] };
+  };
+  harness.onExecute = async ({ query }) => {
+    writes.push(String(query || ""));
+    await write.paused;
+    return { rows: [] };
+  };
+
+  harness.el("buySweep").click();
+  await harness.waitFor(() => classifyQueries.length === 1, { label: "pre-sweep classification" });
+  selectExchange(harness, SWITCHED);
+  preClassify.release();
+
+  await harness.waitFor(() => writes.length === 1, { label: "write execution" });
+  selectExchange(harness, SWITCHED_AGAIN);
+  write.release();
+
+  await harness.waitFor(() => classifyQueries.length === 2, { label: "post-write classification" });
+  selectExchange(harness, SWITCHED);
+  postClassify.release();
+
+  await harness.waitFor(() => confirmQueries.length === 1, { label: "fulfilled-order verification" });
+  await waitForBatches(harness, 1);
+
+  for (const query of classifyQueries) assertScopedTo(query, "classification");
+  assertScopedTo(writes[0], "write SQL");
+  assertScopedTo(confirmQueries[0], "fulfilled-order verification");
+  assert.match(batchHeading(harness), /Exchange 77/);
+  assert.match(batchText(harness), /0x0/);
+  assert.equal(
+    JSON.parse(harness.window.localStorage.getItem("eda-exchange-bot.buyback-log"))[0].exchange_id,
+    CAPTURED
+  );
+});
+
+test("a missing buyback_report is resolved from the captured exchange's audit rows", async () => {
+  // Bridges that discard execute SELECT rows return no buyback_report, so the
+  // sweep diffs its own classification and confirms each vanished listing
+  // against the fulfilled-order audit — all on the captured exchange.
+  const harness = await twoExchangeHarness();
+  const classifyQueries = [];
+  const confirmQueries = [];
+  const preClassify = pausable();
+
+  harness.onQuery = async ({ query }) => {
+    const text = String(query || "");
+    if (isClassifyQuery(text)) {
+      classifyQueries.push(text);
+      if (classifyQueries.length === 1) {
+        await preClassify.paused;
+        return { rows: [eligibleRow()] };
+      }
+      return { rows: [] };
+    }
+    if (text.includes("dune_exchange_fulfilled_orders")) {
+      confirmQueries.push(text);
+      return { rows: [{ order_id: "555" }] };
+    }
+    return { rows: [] };
+  };
+  harness.onExecute = async () => ({ rows: [], status: "executed" });
+
+  harness.el("buySweep").click();
+  await harness.waitFor(() => classifyQueries.length === 1, { label: "pre-sweep classification" });
+  selectExchange(harness, SWITCHED);
+  preClassify.release();
+  await harness.waitFor(() => confirmQueries.length === 1, { label: "fulfilled-order verification" });
+  await waitForBatches(harness, 1);
+
+  assertScopedTo(confirmQueries[0], "fulfilled-order verification");
+  assert.ok(confirmQueries[0].includes("555"), "the vanished listing is the one being confirmed");
+  const logText = batchText(harness);
+  assert.match(logText, /0x0/);
+  assert.match(logText, /success/, "a confirmed payment row resolves to 0x0 success");
+  assert.match(harness.statusText(), /1 bought, 0 not bought/);
+  assert.match(batchHeading(harness), /Exchange 77/);
+});
+
+test("a missing buyback_report with no audit row never invents a success", async () => {
+  const harness = await twoExchangeHarness();
+  const classifyQueries = [];
+  const preClassify = pausable();
+
+  harness.onQuery = async ({ query }) => {
+    const text = String(query || "");
+    if (isClassifyQuery(text)) {
+      classifyQueries.push(text);
+      if (classifyQueries.length === 1) {
+        await preClassify.paused;
+        return { rows: [eligibleRow()] };
+      }
+      return { rows: [] };
+    }
+    // No payment row for the vanished listing (concurrent removal, or a bridge
+    // that dropped the report).
+    if (text.includes("dune_exchange_fulfilled_orders")) return { rows: [] };
+    return { rows: [] };
+  };
+  harness.onExecute = async () => ({ rows: [] });
+
+  harness.el("buySweep").click();
+  await harness.waitFor(() => classifyQueries.length === 1, { label: "pre-sweep classification" });
+  selectExchange(harness, SWITCHED);
+  preClassify.release();
+  await waitForBatches(harness, 1);
+
+  const logText = batchText(harness);
+  assert.match(logText, /0x6/);
+  assert.match(logText, /skipped locked/);
+  assert.doesNotMatch(logText, /0x0/, "an unconfirmed listing must never be logged as bought");
+  assert.match(harness.statusText(), /0 bought, 1 not bought/);
+  assert.match(batchHeading(harness), /Exchange 77/);
+});
+
+test("malformed and out-of-range exchange ids never reach SQL", async () => {
+  // The selector is the only source of exchange ids in the UI, but the ids now
+  // travel as arguments into string-interpolated SQL, so every buyback builder
+  // re-validates them as a positive PostgreSQL BIGINT.
+  const harness = await twoExchangeHarness();
+  const select = harness.el("exchangeId");
+  const validOptions = select.innerHTML;
+  const badIds = [
+    "0",
+    "-5",
+    "1.5",
+    "01",
+    "1e10",
+    "abc",
+    "9223372036854775808", // PostgreSQL BIGINT max + 1
+    "99999999999999999999999",
+    "77; DROP TABLE dune.items",
+    "77 OR 1=1",
+    "77,88"
+  ];
+
+  for (const bad of badIds) {
+    select.innerHTML = `<option value="${bad}">broken</option>`;
+    select.value = bad;
+    assert.equal(select.value, bad, `the selector must hold ${JSON.stringify(bad)} for this check`);
+    const callsBefore = harness.bridgeCalls.length;
+
+    harness.el("buySweep").click();
+    await harness.flush();
+    assert.ok(
+      harness.el("status").className.includes("error"),
+      `sweep must refuse ${JSON.stringify(bad)}, status: ${harness.statusText()}`
+    );
+    assert.match(harness.statusText(), /invalid|Choose an exchange/);
+
+    harness.el("refreshBuybackLog").click();
+    await harness.flush();
+    assert.ok(
+      harness.el("status").className.includes("error"),
+      `dry-run must refuse ${JSON.stringify(bad)}, status: ${harness.statusText()}`
+    );
+
+    assert.equal(
+      harness.bridgeCalls.length,
+      callsBefore,
+      `no bridge request may carry ${JSON.stringify(bad)}`
+    );
+    assert.equal(harness.confirmMessages.length, 0, "no backup confirmation for an unusable exchange");
+  }
+
+  select.innerHTML = validOptions;
+  select.value = CAPTURED;
 });
 
 test("an automatic sweep writes to the exchange its eligibility probe measured", async () => {
@@ -149,7 +376,8 @@ test("an automatic sweep writes to the exchange its eligibility probe measured",
   assertScopedTo(eligibilityQueries[0], "eligibility probe");
   assertScopedTo(harness.executedSql()[0], "auto write SQL");
   for (const query of classifyQueries) assertScopedTo(query, "auto classification");
-  assert.match(harness.el("buybackLog").textContent, /Auto buyback sweep\s*Exchange 77/);
+  await waitForBatches(harness, 1);
+  assert.match(batchHeading(harness), /Auto buyback sweep\s*Exchange 77/);
 });
 
 test("an idle auto tick logs the exchange it probed", async () => {
@@ -181,7 +409,8 @@ test("an idle auto tick logs the exchange it probed", async () => {
   assert.equal(harness.executedSql().length, 0, "an idle tick takes no backup and runs no write");
   assert.equal(classifyQueries.length, 1);
   assertScopedTo(classifyQueries[0], "idle classification");
-  assert.match(harness.el("buybackLog").textContent, /Auto buyback \(idle\)\s*Exchange 77/);
+  await waitForBatches(harness, 1);
+  assert.match(batchHeading(harness), /Auto buyback \(idle\)\s*Exchange 77/);
   assert.match(harness.autoStatusText(), /nothing eligible on exchange 77/);
 });
 
@@ -205,10 +434,10 @@ test("Refresh Log (dry-run) attributes its batch to the exchange it queried", as
   selectExchange(harness, SWITCHED);
   classify.release();
 
-  await harness.waitFor(() => harness.el("buybackLog").textContent.includes("Dry-run classify"), { label: "dry-run log batch" });
+  await waitForBatches(harness, 1);
   assertScopedTo(classifyQueries[0], "dry-run classification");
-  assert.match(harness.el("buybackLog").textContent, /Dry-run classify\s*Exchange 77/);
-  assert.doesNotMatch(harness.el("buybackLog").textContent, /Exchange 88/);
+  assert.match(batchHeading(harness), /Dry-run classify\s*Exchange 77/);
+  assert.doesNotMatch(batchText(harness), /Exchange 88/);
   assert.match(harness.statusText(), /classified on exchange 77/);
   assert.equal(harness.executedSql().length, 0, "the dry-run never writes");
 });
@@ -280,8 +509,8 @@ test("log batches stored without an exchange id stay visible as legacy", async (
     }
   });
 
-  const logText = harness.el("buybackLog").textContent;
-  assert.match(logText, /Legacy exchange unknown/, "batches saved before 0.13.3 must still render");
+  const logText = batchText(harness);
+  assert.match(batchHeading(harness), /Legacy exchange unknown/, "batches saved before 0.13.4 must still render");
   assert.match(logText, /price too high/, "their rows must stay readable");
   assert.match(logText, /TestOre/);
   assert.match(harness.el("buybackLogMeta").textContent, /Legacy exchange unknown/);
@@ -309,12 +538,19 @@ test("buyback actions without a usable exchange report an error instead of faili
 test("an unusable selector value fails one auto tick without wedging market ops", async () => {
   const harness = await twoExchangeHarness();
   harness.setCheckbox("autoBuyback", true);
+  harness.setValue("autoSeedInterval", 60);
+  harness.setCheckbox("autoSeed", true);
   let probes = 0;
+  let seeds = 0;
   harness.onQuery = async ({ query }) => {
     if (String(query || "").includes("eligible_orders")) {
       probes += 1;
       return { rows: [{ eligible_orders: "0" }] };
     }
+    return { rows: [] };
+  };
+  harness.onExecute = async ({ query }) => {
+    if (String(query || "").includes("market_seed_plan")) seeds += 1;
     return { rows: [] };
   };
 
@@ -328,14 +564,24 @@ test("an unusable selector value fails one auto tick without wedging market ops"
   select.appendChild(broken);
   select.value = "0";
 
+  // The buyback tick comes first: it is due at 30 min, the seed job only at 60.
   harness.advanceTime(31 * 60000);
   harness.autoTick();
   await harness.waitFor(() => harness.autoStatusText().includes("Auto buyback failed"), { label: "failed auto tick" });
   assert.equal(probes, 0, "no probe may run without a usable exchange");
+  assert.equal(seeds, 0);
 
+  // autoRunning is shared by all three in-page jobs, so the seed job proves the
+  // lock was released by the finally block, not just re-armed for buyback.
   selectExchange(harness, CAPTURED);
+  harness.advanceTime(30 * 60000);
+  harness.autoTick();
+  await harness.waitFor(() => seeds === 1, { label: "recovered auto seed" });
+  await harness.waitFor(() => harness.autoStatusText().includes("Auto seed: finished"), { label: "auto seed completion" });
+
+  harness.setCheckbox("autoSeed", false);
   harness.advanceTime(31 * 60000);
   harness.autoTick();
-  await harness.waitFor(() => probes === 1, { label: "recovered auto tick" });
+  await harness.waitFor(() => probes === 1, { label: "recovered auto buyback tick" });
   await harness.waitFor(() => harness.autoStatusText().includes("nothing eligible on exchange 77"), { label: "recovered idle status" });
 });
