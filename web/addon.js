@@ -34,8 +34,10 @@
   const serverSeedScheduleStatusEl = document.getElementById("serverSeedScheduleStatus");
   const buybackLogEl = document.getElementById("buybackLog");
   const buybackLogMetaEl = document.getElementById("buybackLogMeta");
+  const addonVersionBadgeEl = document.getElementById("addonVersionBadge");
 
   let payload = null;
+  let addonVersion = null;
   let renderedRows = [];
   let exchangesLoaded = false;
   let writeInProgress = false;
@@ -406,6 +408,16 @@ ORDER BY is_global ASC, k.exchange_id ASC;`
     }
   }
 
+  function setAddonVersion(version) {
+    const text = String(version || "").trim();
+    if (!text) return;
+    addonVersion = text;
+    if (addonVersionBadgeEl) addonVersionBadgeEl.textContent = `v${text.replace(/^v/i, "")}`;
+    if (document.title === "EDA Exchange Bot" || /^EDA Exchange Bot\b/.test(document.title)) {
+      document.title = `EDA Exchange Bot v${text.replace(/^v/i, "")}`;
+    }
+  }
+
   function refreshPreview() {
     if (!payload) return;
     renderedRows = rowsForCurrentMultiplier();
@@ -413,7 +425,8 @@ ORDER BY is_global ASC, k.exchange_id ASC;`
     renderKinds(renderedRows);
     renderRows();
     statusEl.className = "status";
-    statusEl.textContent = `Preview ready from EDA ${payload.panel_version}; ${renderedRows.length.toLocaleString()} unique rows at ${currentMultiplier()}x.`;
+    const versionLabel = addonVersion || payload.panel_version || "?";
+    statusEl.textContent = `Preview ready from EDA Exchange Bot ${versionLabel}; ${renderedRows.length.toLocaleString()} unique rows at ${currentMultiplier()}x.`;
   }
 
   function clampDurability(value, fallback = 100) {
@@ -1772,13 +1785,32 @@ WHERE f.completion_type = 4
     }
   }
 
+  async function loadAddonManifestVersion() {
+    // Prefer addon.json (authoritative package version). Fall back to the seed
+    // plan stamp if the console does not expose the parent manifest path.
+    try {
+      const response = await fetch("../addon.json", { cache: "no-store" });
+      if (response.ok) {
+        const manifest = await response.json();
+        if (manifest?.version) {
+          setAddonVersion(manifest.version);
+          return;
+        }
+      }
+    } catch {
+      // Fall through to the seed-plan stamp.
+    }
+  }
+
   async function loadSeedPlan() {
     statusEl.className = "status";
     statusEl.textContent = "Loading bundled Easy Dune Admin market seed plan...";
     try {
+      await loadAddonManifestVersion();
       const response = await fetch("market-seed-plan.json", { cache: "no-store" });
       if (!response.ok) throw new Error(`Seed plan returned HTTP ${response.status}.`);
       payload = await response.json();
+      if (!addonVersion && payload.panel_version) setAddonVersion(payload.panel_version);
       if (!localStorage.getItem(settingsStorageKey)) {
         multiplierEl.value = String(payload.price_multiplier || 5);
       }
