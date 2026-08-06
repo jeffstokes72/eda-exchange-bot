@@ -27,6 +27,11 @@
   const serverBuybackPercentEl = document.getElementById("serverBuybackPercent");
   const serverMaxBuysEl = document.getElementById("serverMaxBuys");
   const serverScheduleStatusEl = document.getElementById("serverScheduleStatus");
+  const serverSeedScheduleSectionEl = document.getElementById("serverSeedScheduleSection");
+  const serverSeedScheduleEnabledEl = document.getElementById("serverSeedScheduleEnabled");
+  const serverSeedIntervalMinutesEl = document.getElementById("serverSeedIntervalMinutes");
+  const serverSeedPriceMultiplierEl = document.getElementById("serverSeedPriceMultiplier");
+  const serverSeedScheduleStatusEl = document.getElementById("serverSeedScheduleStatus");
   const buybackLogEl = document.getElementById("buybackLog");
   const buybackLogMetaEl = document.getElementById("buybackLogMeta");
 
@@ -39,8 +44,11 @@
   let nextAutoCleanupAt = 0;
   let autoRunning = false;
   let serverScheduleSupported = false;
+  let serverSeedScheduleSupported = false;
   let serverScheduleRefreshInFlight = false;
+  let serverSeedScheduleRefreshInFlight = false;
   let serverScheduleSaveInFlight = false;
+  let serverSeedScheduleSaveInFlight = false;
   let serverProbeInFlight = false;
   let lastExecuteResult = null;
   let buybackLogEntries = [];
@@ -114,7 +122,7 @@
   function currentThreshold() { return clampInteger(thresholdEl.value, 60, 1, 100); }
   function currentMaxBuys() { return clampInteger(maxBuysEl.value, 500, 1, 5000); }
   function currentAutoIntervalMinutes() { return clampInteger(autoBuybackIntervalEl.value, 30, 10, 1440); }
-  function currentAutoSeedIntervalMinutes() { return clampInteger(autoSeedIntervalEl.value, 360, 10, 1440); }
+  function currentAutoSeedIntervalMinutes() { return clampInteger(autoSeedIntervalEl.value, 15, 10, 1440); }
   function currentAutoCleanupIntervalMinutes() { return clampInteger(autoCleanupIntervalEl.value, 360, 10, 1440); }
 
   // Exchange ids reach the SQL builders as explicit arguments now, so they are
@@ -1293,7 +1301,7 @@ WHERE f.completion_type = 4
   function refreshMarketOpsStatus(prefix = "Auto market ops") {
     const enabled = [];
     if (autoBuybackEl.checked) enabled.push(`buyback every ${currentAutoIntervalMinutes()} min`);
-    if (autoSeedEl.checked) enabled.push(`seed every ${currentAutoSeedIntervalMinutes()} min`);
+    if (autoSeedEl.checked) enabled.push(`reseed every ${currentAutoSeedIntervalMinutes()} min`);
     if (autoCleanupEl.checked) enabled.push(`unsafe cleanup every ${currentAutoCleanupIntervalMinutes()} min`);
     if (!enabled.length) {
       setAutoStatus(prefix === "Auto market ops" ? "Auto market ops are off." : `${prefix}.`);
@@ -1342,7 +1350,10 @@ WHERE f.completion_type = 4
     autoRunning = true;
     nextAutoSeedAt = Date.now() + currentAutoSeedIntervalMinutes() * 60000;
     try {
-      setAutoStatus("Auto seed: replacing NPC sell market...");
+      // forceClear is mandatory: without it a repeat interval would stack another
+      // full bot market on top of the last one. RedBlink's write bridge takes the
+      // database backup before the SQL (clear + seed) runs.
+      setAutoStatus("Auto seed: backup, then clear this exchange's bot listings and reseed...");
       const ok = await runSeedWrite("Auto seed NPC sell market", { forceClear: true, confirmPrompt: false });
       if (ok) {
         setAutoStatus(`Auto seed: finished at ${new Date().toLocaleTimeString()}. ${describeMarketOpsSchedule()}.`, "status ok");
@@ -1432,17 +1443,16 @@ WHERE f.completion_type = 4
     refreshMarketOpsStatus();
   }
 
-  // ---- Server-side buyback schedule ----
+  // ---- Server-side buyback + seed schedules ----
   //
   // Scheduler-capable consoles (Red-Blink/dune-awakening-selfhost-docker
-  // PR #103) run the buyback loop inside the console API process, so sweeps
-  // keep running after this page closes. The console builds all SQL for the
-  // scheduler.* actions server-side from the bundled seed plan; this page only
-  // sends typed parameters, never SQL. Older consoles answer these actions
-  // with "Unsupported addon action", in which case the section stays hidden
-  // and the in-page auto market ops remain the only automation.
-  // Seed / unsafe-cleanup jobs are not in the console scheduler yet; use the
-  // in-page auto seed and auto cleanup toggles for those.
+  // PR #103 for buyback; seed job via scheduler.seed.*) run loops inside the
+  // console API process, so work keeps running after this page closes. The
+  // console builds all SQL for the scheduler.* actions server-side from the
+  // bundled seed plan; this page only sends typed parameters, never SQL.
+  // Older consoles answer unknown actions with "Unsupported addon action",
+  // in which case the matching section stays hidden and the in-page auto
+  // market ops remain the fallback.
 
   function setServerScheduleStatus(message, className = "status") {
     serverScheduleStatusEl.className = className;
@@ -1498,8 +1508,7 @@ WHERE f.completion_type = 4
 
     // Steer away from double buyback automation: with the server schedule
     // enabled the in-page buyback loop would run redundant sweeps, each
-    // taking its own backup. Seed/cleanup stay available in-page because the
-    // console scheduler does not run those jobs yet.
+    // taking its own backup.
     if (schedule.enabled) {
       if (autoBuybackEl.checked) {
         autoBuybackEl.checked = false;
@@ -1626,8 +1635,141 @@ WHERE f.completion_type = 4
   // (~60 requests/min per addon+IP) is shared with every other call from this
   // page, so poll sparingly.
   function serverSchedulePollTick() {
-    if (!serverScheduleSupported || writeInProgress) return;
-    void loadServerSchedule({ quiet: true });
+    if (writeInProgress) return;
+    if (serverScheduleSupported) void loadServerSchedule({ quiet: true });
+    if (serverSeedScheduleSupported) void loadServerSeedSchedule({ quiet: true });
+  }
+
+  function setServerSeedScheduleStatus(message, className = "status") {
+    serverSeedScheduleStatusEl.className = className;
+    serverSeedScheduleStatusEl.textContent = message;
+  }
+
+  function serverSeedScheduleFormValues() {
+    const schedule = {
+      enabled: serverSeedScheduleEnabledEl.checked,
+      intervalMinutes: clampInteger(serverSeedIntervalMinutesEl.value, 15, 10, 1440),
+      priceMultiplier: clampInteger(serverSeedPriceMultiplierEl.value, 5, 1, 100)
+    };
+    const exchangeId = normalizeExchangeId(exchangeIdEl.value);
+    if (exchangeId) schedule.exchangeId = exchangeId;
+    return schedule;
+  }
+
+  function renderServerSeedSchedule(schedule, { populateForm = false } = {}) {
+    if (!schedule || typeof schedule !== "object") return;
+    if (populateForm) {
+      serverSeedScheduleEnabledEl.checked = Boolean(schedule.enabled);
+      if (schedule.intervalMinutes != null) serverSeedIntervalMinutesEl.value = String(schedule.intervalMinutes);
+      if (schedule.priceMultiplier != null) serverSeedPriceMultiplierEl.value = String(schedule.priceMultiplier);
+    }
+    const parts = [];
+    if (schedule.enabled) {
+      parts.push(`enabled, every ${formatNumber(schedule.intervalMinutes)} min on exchange ${schedule.exchangeId || "(none saved)"}`);
+      if (schedule.nextRunAt) parts.push(`next run ${formatScheduleTime(schedule.nextRunAt)}`);
+    } else {
+      parts.push(schedule.exchangeId ? `disabled (saved exchange ${schedule.exchangeId})` : "disabled");
+    }
+    if (schedule.lastRunAt) {
+      const runStatus = schedule.lastRunStatus ? ` (${schedule.lastRunStatus})` : "";
+      const runDetail = schedule.lastRunDetail ? `: ${schedule.lastRunDetail}` : "";
+      parts.push(`last run ${formatScheduleTime(schedule.lastRunAt)}${runStatus}${runDetail}`);
+    } else {
+      parts.push("no runs yet");
+    }
+    setServerSeedScheduleStatus(`Server-side reseed: ${parts.join(" | ")}.`, schedule.lastRunStatus === "error" ? "status error" : "status");
+
+    if (schedule.enabled) {
+      if (autoSeedEl.checked) {
+        autoSeedEl.checked = false;
+        persistSettings();
+        onAutoSeedToggle();
+      }
+      autoSeedEl.disabled = true;
+      refreshMarketOpsStatus("In-page reseed is off: the server-side schedule reseeds unattended");
+    } else {
+      autoSeedEl.disabled = false;
+      refreshMarketOpsStatus();
+    }
+  }
+
+  async function loadServerSeedSchedule({ populateForm = false, quiet = false } = {}) {
+    if (serverSeedScheduleRefreshInFlight) return;
+    serverSeedScheduleRefreshInFlight = true;
+    try {
+      const schedule = await requestBridge("scheduler.seed.schedule.get");
+      renderServerSeedSchedule(schedule, { populateForm });
+    } catch (error) {
+      if (!quiet) setServerSeedScheduleStatus(`Server-side reseed status failed to load: ${error.message || String(error)}`, "status error");
+    } finally {
+      serverSeedScheduleRefreshInFlight = false;
+    }
+  }
+
+  async function detectServerSeedSchedule() {
+    if (window.parent === window) return;
+    try {
+      const schedule = await requestBridge("scheduler.seed.schedule.get");
+      serverSeedScheduleSupported = true;
+      serverSeedScheduleSectionEl.hidden = false;
+      renderServerSeedSchedule(schedule, { populateForm: true });
+    } catch (error) {
+      const message = String(error?.message || error);
+      if (/unsupported addon action/i.test(message)) return;
+      serverSeedScheduleSupported = true;
+      serverSeedScheduleSectionEl.hidden = false;
+      setServerSeedScheduleStatus(`Server-side reseed status failed to load: ${message} Use Refresh Status to retry.`, "status error");
+    }
+  }
+
+  async function saveServerSeedSchedule() {
+    if (serverSeedScheduleSaveInFlight) return;
+    serverSeedScheduleSaveInFlight = true;
+    const saveButton = document.getElementById("saveServerSeedSchedule");
+    saveButton.disabled = true;
+    try {
+      const schedule = serverSeedScheduleFormValues();
+      setServerSeedScheduleStatus("Saving server-side reseed schedule...");
+      const saved = await requestBridge("scheduler.seed.schedule.set", { schedule });
+      renderServerSeedSchedule(saved, { populateForm: true });
+    } catch (error) {
+      const message = error.message || String(error);
+      const enabling = serverSeedScheduleEnabledEl.checked;
+      const hint = enabling && /scheduler:server|permission|approved/i.test(message)
+        ? " Approve the scheduler:server permission for this addon in the console's Addons panel, then save again."
+        : "";
+      setServerSeedScheduleStatus(`Saving the server-side reseed schedule failed: ${message}${hint}`, "status error");
+    } finally {
+      serverSeedScheduleSaveInFlight = false;
+      saveButton.disabled = false;
+    }
+  }
+
+  async function runServerSeed() {
+    if (writeInProgress) {
+      setServerSeedScheduleStatus("Another write is already in progress.", "status error");
+      return;
+    }
+    writeInProgress = true;
+    for (const button of document.querySelectorAll("button")) button.disabled = true;
+    setServerSeedScheduleStatus("Server-side reseed starting: the console takes a backup, clears bot listings on the saved exchange, then seeds...");
+    resultEl.textContent = "Running...";
+    try {
+      const result = await requestBridge("scheduler.seed.run", {});
+      resultEl.textContent = JSON.stringify(result, null, 2);
+      if (result?.schedule) renderServerSeedSchedule(result.schedule);
+      if (result?.status === "seeded") {
+        setServerSeedScheduleStatus(`Server-side reseed finished: ${formatNumber(result.listingCount)} listings on exchange ${result.exchangeId || "?"}.${result.detail ? ` ${result.detail}` : ""}`, "status ok");
+      } else {
+        setServerSeedScheduleStatus(`Server-side reseed finished.${result?.detail ? ` ${result.detail}` : ""}`, "status ok");
+      }
+    } catch (error) {
+      resultEl.textContent = error.stack || error.message || String(error);
+      setServerSeedScheduleStatus(`Server-side reseed failed: ${error.message || String(error)}`, "status error");
+    } finally {
+      writeInProgress = false;
+      for (const button of document.querySelectorAll("button")) button.disabled = false;
+    }
   }
 
   async function loadSeedPlan() {
@@ -1681,8 +1823,12 @@ WHERE f.completion_type = 4
   document.getElementById("serverProbe").addEventListener("click", () => void probeServerSchedule());
   document.getElementById("serverRun").addEventListener("click", () => void runServerSweep());
   document.getElementById("refreshServerSchedule").addEventListener("click", () => void loadServerSchedule({ populateForm: true }));
+  document.getElementById("saveServerSeedSchedule").addEventListener("click", () => void saveServerSeedSchedule());
+  document.getElementById("serverSeedRun").addEventListener("click", () => void runServerSeed());
+  document.getElementById("refreshServerSeedSchedule").addEventListener("click", () => void loadServerSeedSchedule({ populateForm: true }));
   window.setInterval(autoMarketOpsTick, 15000);
   window.setInterval(serverSchedulePollTick, 45000);
   void detectServerSchedule();
+  void detectServerSeedSchedule();
   loadSeedPlan();
 })();

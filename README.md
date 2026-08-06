@@ -79,20 +79,27 @@ them.
   a read-only query first and takes a pre-write backup only when there is
   something to buy. Requires the `scheduler:server` permission to be approved.
   The addon feature-detects console support and hides the section on older
-  consoles. Seed and unsafe-cleanup are not console scheduler jobs yet.
-  Current RedBlink builds align scheduled buyback pricing/stacks with this
-  addon's in-page logic (per-grade caps, full stacks, nearest-grade fallback);
-  the in-page Buyback Sweep Log still only covers sweeps run from this page.
-- **Auto market ops (in-page)**: optional schedulers run buyback, NPC reseed,
-  and unsafe-listing cleanup on intervals while the addon page is open. The
-  unattended reseed always replaces the bot's own listings for the selected
-  exchange, so repeated runs cannot stack duplicate markets.
+  consoles. Unsafe-cleanup is not a console scheduler job yet (use the in-page
+  toggle). Market reseed is scheduled through `scheduler.seed.*` when the
+  console build supports it (see `console-patches/`); otherwise the in-page
+  auto reseed fallback applies. Current RedBlink builds align scheduled buyback
+  pricing/stacks with this addon's in-page logic (per-grade caps, full stacks,
+  nearest-grade fallback); the in-page Buyback Sweep Log still only covers
+  sweeps run from this page.
+- **Server-Side Market Reseed Schedule**: same RedBlink scheduler service as
+  buyback. Saves interval (default **15** minutes), price multiplier, and
+  exchange through typed `scheduler.seed.schedule.*` actions; **Run Reseed Now**
+  calls `scheduler.seed.run`. Every run is backup → clear bot listings → seed.
+  Requires a console build that includes the seed job; until then the section
+  stays hidden.
+- **Auto market ops (in-page)**: optional schedulers also run buyback, NPC
+  reseed (default 15 min, always replaces bot listings), and unsafe-listing
+  cleanup while the addon page is open.
   Buyback starts with a read-only eligibility query; the write sweep (and
   RedBlink's automatic pre-write backup) only happens when there is at least
-  one eligible listing. Fallback for consoles without scheduler support, and
-  the only hands-off path for seed/cleanup until the console adds those jobs;
-  while the server-side buyback schedule is enabled, the in-page buyback
-  toggle is turned off to avoid redundant sweeps (seed/cleanup stay available).
+  one eligible listing. Fallback for consoles without scheduler support;
+  while a server-side buyback or reseed schedule is enabled, the matching
+  in-page toggle is turned off to avoid redundant work.
 - **Exchange detection**: resolves access points from
   `dune_exchange_accesspoints` first (the exchange players actually reach
   in-game) and refuses to fabricate one, matching EDA's exchange/access-point
@@ -235,17 +242,17 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.13.7
-   git push origin v0.13.7
+   git tag v0.13.8
+   git push origin v0.13.8
    ```
 
-The tag **must** be `v` + `addon.json.version` (for example `v0.13.7`). The
+The tag **must** be `v` + `addon.json.version` (for example `v0.13.8`). The
 release workflow refuses a mismatched tag. GitHub Actions validates the addon,
 packages `addon.json` + `web/`, creates the GitHub Release, and uploads:
 
 ```text
-eda-exchange-bot-0.13.7.zip
-eda-exchange-bot-0.13.7.zip.sha256
+eda-exchange-bot-0.13.8.zip
+eda-exchange-bot-0.13.8.zip.sha256
 ```
 
 Do not use GitHub's automatic source archives as the install package.
@@ -255,7 +262,7 @@ Do not use GitHub's automatic source archives as the install package.
 Staging copies for the catalog PR live in `community-index/` (see that
 README). Per [RedBlink publishing docs](https://github.com/Red-Blink/dune-docker-addon-template/blob/main/docs/publishing.md):
 
-1. Publish the `v0.13.7` release first and copy the release asset's SHA-256
+1. Publish the `v0.13.8` release first and copy the release asset's SHA-256
    into `community-index/eda-exchange-bot.json`.
 2. Open a pull request to
    [Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)
