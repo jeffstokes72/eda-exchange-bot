@@ -4,6 +4,40 @@ Notable changes to the EDA Exchange Bot addon, authored and maintained by
 jeffstokes72 with n00bGames (Easy Dune Admin). Written for RedBlink (console
 maintainer review) and both addon authors, documenting what changed and why.
 
+## 0.13.5 - 2026-08-06
+
+Closes out RedBlink's review of
+[dune-docker-addons#21](https://github.com/Red-Blink/dune-docker-addons/pull/21).
+0.13.4 scoped buyback operations to a captured Exchange ID but left two paths
+that still re-read the controls after an await.
+
+### Fixed
+
+- **An automatic sweep writes with the settings its eligibility probe
+  measured**: the tick captured the Exchange ID *and* the pricing inputs, but
+  passed only the Exchange ID into `runBuybackSweep()`, so the sweep re-read the
+  price multiplier, buyback threshold, and Max Buys. Changing any of them while
+  the eligibility query was in flight let the write apply different rules than
+  the probe had counted with — different caps, or a different Max Buys than the
+  one the leftover `0x5` / `0x6` ranking assumed. The whole capture is now handed
+  down, and the buyback inputs are clamped to their control's own range inside
+  the SQL builders, the same way Exchange IDs are re-validated there.
+- **A seed write saves the exchange it seeded**: seed SQL is built before the
+  first await so the statement itself could not drift, but the exchange was read
+  again afterwards to record what had been seeded. Selecting another exchange
+  during the write saved that one instead. Seeding (manual and unattended) now
+  captures the Exchange ID up front and uses it for both the SQL and the saved
+  state, inside the same protected path as the buyback operations.
+
+### Added
+
+- Regression coverage for both: a paused eligibility query with the multiplier,
+  threshold, Max Buys, and selector all changed before it answers, asserting the
+  write still carries the probe's caps, `LIMIT`, and leftover ranking; and a
+  paused seed write with the selector moved to an exchange the addon has never
+  seen, asserting only the seeded exchange is saved. Seeding without a usable
+  exchange is covered alongside the buyback actions.
+
 ## 0.13.4 - 2026-08-05
 
 Addresses RedBlink's review of the Buyback Sweep Log
