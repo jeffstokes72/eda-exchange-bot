@@ -7,7 +7,7 @@
   "type": "ui",
   "sourceUrl": "https://github.com/jeffstokes72/eda-exchange-bot",
   "downloadUrl": "https://github.com/jeffstokes72/eda-exchange-bot/releases/download/v0.13.8/eda-exchange-bot-0.13.8.zip",
-  "sha256": "",
+  "sha256": "32032a87e737ebe8fb9b15811328ac044c7b2d0c9f7715e7cf6efa665768feb1",
   "permissions": {
     "database": [
       "read",

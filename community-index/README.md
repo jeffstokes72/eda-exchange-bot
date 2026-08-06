@@ -17,9 +17,11 @@ for 0.13.8.
 2. Push tag `v0.13.8` so the Release workflow builds
    `eda-exchange-bot-0.13.8.zip` with its `.sha256` asset:
    https://github.com/jeffstokes72/eda-exchange-bot/releases/tag/v0.13.8
-3. Fill `eda-exchange-bot.json` `sha256` from the published
-   `eda-exchange-bot-0.13.8.zip.sha256` asset (and verify with a local
-   `sha256sum eda-exchange-bot-0.13.8.zip` of the downloaded archive).
+3. Checksum
+   `32032a87e737ebe8fb9b15811328ac044c7b2d0c9f7715e7cf6efa665768feb1`
+   is filled into `eda-exchange-bot.json` `sha256`. It matches the published
+   `eda-exchange-bot-0.13.8.zip.sha256` asset and a local
+   `sha256sum eda-exchange-bot-0.13.8.zip` of the downloaded archive.
 
 ## Submitting to Red-Blink/dune-docker-addons
 
