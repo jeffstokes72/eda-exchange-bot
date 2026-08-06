@@ -40,7 +40,7 @@
           <input id="autoBuybackInterval" type="number" min="10" max="1440" step="1" value="30">
         </label>
         <label>Auto Seed Interval (minutes)
-          <input id="autoSeedInterval" type="number" min="10" max="1440" step="1" value="360">
+          <input id="autoSeedInterval" type="number" min="10" max="1440" step="1" value="15">
         </label>
         <label>Auto Cleanup Interval (minutes)
           <input id="autoCleanupInterval" type="number" min="10" max="1440" step="1" value="360">
@@ -79,7 +79,7 @@
 
     <section id="serverScheduleSection" hidden>
       <h2>Server-Side Buyback Schedule</h2>
-      <p>The console runs the buyback sweep unattended, so this page does not need to stay open. Scheduled and manual server-side runs use the <strong>saved</strong> values below with the exchange selected in Exchange Controls at save time; save the schedule before using Run Sweep Now. Every run probes eligibility with a read-only query first and takes a backup only when there is something to buy. All SQL is built by the console from the bundled seed plan. <strong>Seed and unsafe cleanup</strong> are not yet runnable by the console scheduler — enable the in-page auto seed / auto cleanup checkboxes above for those while this page stays open.</p>
+      <p>The console runs the buyback sweep unattended, so this page does not need to stay open. Scheduled and manual server-side runs use the <strong>saved</strong> values below with the exchange selected in Exchange Controls at save time; save the schedule before using Run Sweep Now. Every run probes eligibility with a read-only query first and takes a backup only when there is something to buy. All SQL is built by the console from the bundled seed plan.</p>
       <p class="muted"><strong>Console version note:</strong> scheduled buyback SQL lives in the console (<code>addonJobs.js</code>), not in this page. Current RedBlink builds (aligned 2026-07-29) match per-grade caps, whole-stack quantity (<code>GREATEST(item, initial)</code>), and nearest-grade fallback. Older consoles may still use grade-0 base caps / single-unit stacks — upgrade the console if unattended buys look wrong. The Buyback Sweep Log above only records in-page / auto sweeps from this page, not console-scheduled runs.</p>      <div class="controls">
         <label>Interval (minutes)
           <input id="serverIntervalMinutes" type="number" min="10" max="1440" step="1" value="30">
@@ -103,6 +103,28 @@
       </div>
       <p class="muted">Enabling requires the <code>scheduler:server</code> permission to be approved in the console's Addons panel. The first run fires one full interval after enabling; the schedule survives console restarts. While the server-side schedule is enabled, the in-page auto buyback checkbox is turned off: concurrent sweeps are safe at the database level but redundant, and each takes its own backup.</p>
       <div id="serverScheduleStatus" class="status">Checking console support...</div>
+    </section>
+
+    <section id="serverSeedScheduleSection" hidden>
+      <h2>Server-Side Market Reseed Schedule</h2>
+      <p>The console runs the NPC market reseed unattended (same RedBlink scheduler service as buyback), so this page does not need to stay open. Saved values below use the exchange selected in Exchange Controls at save time. Every run takes a database backup, clears the bot's own listings on that exchange, then seeds fresh from the bundled plan — player listings are never touched. All SQL is built by the console; this page only sends typed parameters.</p>
+      <p class="muted">Default interval is <strong>15 minutes</strong>. Each cycle creates a full database backup, so raise the interval (30–60+) if backups pile up. Requires a console build that exposes <code>scheduler.seed.*</code> (see <code>console-patches/</code> until RedBlink merges it). Older consoles keep this section hidden and use the in-page auto reseed checkbox above.</p>
+      <div class="controls">
+        <label>Interval (minutes)
+          <input id="serverSeedIntervalMinutes" type="number" min="10" max="1440" step="1" value="15">
+        </label>
+        <label>Price Multiplier
+          <input id="serverSeedPriceMultiplier" type="number" min="1" max="100" step="1" value="5">
+        </label>
+        <label class="checkbox-line"><input id="serverSeedScheduleEnabled" type="checkbox"> Run market reseed on the console server (unattended)</label>
+      </div>
+      <div class="button-row">
+        <button id="saveServerSeedSchedule" type="button">Save Seed Schedule</button>
+        <button id="serverSeedRun" type="button" class="danger">Run Reseed Now</button>
+        <button id="refreshServerSeedSchedule" type="button" class="secondary">Refresh Status</button>
+      </div>
+      <p class="muted">Enabling requires the <code>scheduler:server</code> permission. The first run fires one full interval after enabling. While this schedule is enabled, the in-page auto reseed checkbox is turned off to avoid redundant backups.</p>
+      <div id="serverSeedScheduleStatus" class="status">Checking console support...</div>
     </section>
 
     <section>

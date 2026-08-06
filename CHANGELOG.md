@@ -4,6 +4,25 @@ Notable changes to the EDA Exchange Bot addon, authored and maintained by
 jeffstokes72 with n00bGames (Easy Dune Admin). Written for RedBlink (console
 maintainer review) and both addon authors, documenting what changed and why.
 
+## 0.13.8 - 2026-08-06
+
+### Added
+
+- **Server-Side Market Reseed Schedule**: mirrors the buyback scheduler wiring
+  against RedBlink's scheduler service. The addon feature-detects
+  `scheduler.seed.schedule.get` / `.set` / `scheduler.seed.run`, saves
+  interval (default **15** min), price multiplier, and exchange, and offers
+  **Run Reseed Now**. Every console run is backup → clear bot listings on that
+  exchange → seed from the bundled plan. While the server schedule is enabled,
+  the in-page auto reseed checkbox is turned off. Console-side implementation
+  lives in `console-patches/` until RedBlink merges it; older consoles keep the
+  section hidden and use the in-page auto reseed fallback (also default 15 min,
+  always force-clears).
+
+### Changed
+
+- Auto-seed interval default is 15 minutes (was 360).
+
 ## 0.13.7 - 2026-08-06
 
 ### Changed
