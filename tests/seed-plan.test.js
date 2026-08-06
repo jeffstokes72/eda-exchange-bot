@@ -77,6 +77,7 @@ test("seed plan bakes ranks only for T6 rankable gear and their schematics", () 
 
 test("commodities use catalog max stacks and durability stays in 100..200", () => {
   const plan = bundledSeedPlan();
+  const itemData = require("../data/item-data.json");
   const spice = plan.rows.find((r) => r.display_name === "Spice Residue");
   assert.ok(spice, "Spice Residue must be listed");
   assert.equal(spice.stack_size, 1000);
@@ -90,7 +91,82 @@ test("commodities use catalog max stacks and durability stays in 100..200", () =
     assert.ok(row.durability_cur >= 100 && row.durability_cur <= 200, `${row.template_id} durability_cur`);
     assert.ok(row.durability_max >= 100 && row.durability_max <= 200, `${row.template_id} durability_max`);
     assert.equal(row.durability_cur, row.durability_max);
-    assert.equal(row.listings, 2);
+    // Default stock depth is 2; vehicle locomotion overstocks by family
+    // (asserted separately below).
+    if (row.listings !== 2) {
+      const category = String(itemData.items[row.template_id]?.category || "");
+      assert.match(
+        category,
+        /^items\/vehicles\/[^/]+\/locomotion$/,
+        `${row.template_id} has listings=${row.listings} but is not vehicle locomotion`
+      );
+    }
+  }
+});
+
+test("vehicle locomotion stocks deeper treads and wings by family", () => {
+  // Sandbike/buggy treads and ornithopter wings wear out and are a common
+  // repurchase. Stock depth is per existing template/rank (assault only has
+  // Mk5/Mk6; carrier only Mk6). Unique modules under the same category path
+  // (Albatross / Hummingbird / Roc) share the family's count; schematics stay
+  // at 2. Sandcrawler / treadwheel locomotion stays at the default 2.
+  const plan = bundledSeedPlan();
+  const itemData = require("../data/item-data.json");
+  const expected = {
+    sandbike: 3,
+    buggy: 4,
+    lightornithopter: 4,
+    mediumornithopter: 6,
+    transportornithopter: 8
+  };
+
+  const byFamily = new Map();
+  for (const row of plan.rows) {
+    const entry = itemData.items[row.template_id];
+    const category = String(entry?.category || "");
+    const parts = category.split("/");
+    if (parts.length < 4 || parts[0] !== "items" || parts[1] !== "vehicles" || parts[3] !== "locomotion") {
+      continue;
+    }
+    const family = parts[2];
+    if (!byFamily.has(family)) byFamily.set(family, []);
+    byFamily.get(family).push(row);
+  }
+
+  for (const [family, count] of Object.entries(expected)) {
+    const rows = byFamily.get(family) || [];
+    assert.ok(rows.length > 0, `expected ${family} locomotion rows`);
+    assert.ok(
+      rows.every((r) => r.listings === count),
+      `${family} locomotion must seed ${count} listings each (got ${[...new Set(rows.map((r) => r.listings))].join(",")})`
+    );
+  }
+
+  // Explicit samples from the operator request.
+  assert.equal(plan.rows.find((r) => r.template_id === "SandbikeLocomotion_3")?.listings, 3);
+  assert.equal(plan.rows.find((r) => r.template_id === "BuggyLocomotion_5")?.listings, 4);
+  assert.equal(plan.rows.find((r) => r.template_id === "OrnithopterLightLocomotion_4")?.listings, 4);
+  assert.equal(plan.rows.find((r) => r.template_id === "OrnithopterMediumLocomotion_5")?.listings, 6);
+  assert.equal(plan.rows.find((r) => r.template_id === "OrnithopterMediumLocomotion_6")?.listings, 6);
+  assert.equal(plan.rows.find((r) => r.template_id === "OrnithopterTransportLocomotion_6")?.listings, 8);
+
+  // Unique locomotion modules follow the family depth; their schematics stay at 2.
+  assert.equal(plan.rows.find((r) => r.template_id === "OrnithopterLightLocomotion_Unique_Speed_6")?.listings, 4);
+  assert.equal(plan.rows.find((r) => r.template_id === "OrnithopterMediumLocomotion_Unique_Strafe_6")?.listings, 6);
+  assert.equal(plan.rows.find((r) => r.template_id === "OrnithopterTransportLocomotion_Unique_Speed_6")?.listings, 8);
+  const albatrossSchematic = plan.rows.filter((r) => r.template_id === "OrnithopterLightLocomotion_Unique_Speed_6_Schematic");
+  assert.ok(albatrossSchematic.length >= 1);
+  assert.ok(albatrossSchematic.every((r) => r.listings === 2), "locomotion schematics stay at 2");
+
+  // Sandcrawler / treadwheel stay at default; suspensors are not locomotion.
+  for (const id of ["SandcrawlerLocomotion_6", "TreadwheelLocomotion_6"]) {
+    const row = plan.rows.find((r) => r.template_id === id);
+    assert.ok(row, `${id} must still seed`);
+    assert.equal(row.listings, 2, `${id} stays at default depth`);
+  }
+  const suspensor = plan.rows.find((r) => /emperor.?s?\s*wings/i.test(r.display_name) || /Suspensor/i.test(r.template_id || ""));
+  if (suspensor) {
+    assert.equal(suspensor.listings, 2, "utility suspensors are not vehicle locomotion stock");
   }
 });
 

@@ -12,7 +12,11 @@ Rules (see CHANGELOG / operator notes):
 - Schematics for those same T6 rankable families: bake grades 1-5 (2 each),
   augments from min_quality_level when set.
 - Tools/vehicles/Tier 1-5 gear and their schematics: stock only (quality 0).
-- Vehicles/ammo/consumables/fuel/cartography: stock only, 2 listings.
+- Vehicles/ammo/consumables/fuel/cartography: stock only; default 2 listings.
+- Vehicle locomotion (treads / wings) stocks deeper by family: sandbike 3,
+  buggy 4, scout (light) wings 4, assault (medium) wings 6, carrier
+  (transport) wings 8. Matched on category path so unique modules under the
+  same family get the same depth; schematics stay at 2.
 - Durability on listings scales 100..200 by tier and quality grade; seed SQL
   writes that into item stats (orders keep wear 1.0/1.0).
 """
@@ -33,6 +37,17 @@ OLD = OUT  # reuse prior unsafe list when present
 
 PRICE_MULTIPLIER = 5
 LISTINGS_PER_GRADE = 2
+# Vehicle locomotion wears out and is a common repurchase — stock more of the
+# parts players actually replace. Matched on category path so unique modules
+# (Albatross, Hummingbird, Roc) get the same depth as the stock tread/wing.
+# Schematics stay at LISTINGS_PER_GRADE; only the physical part is overstocked.
+LOCOMOTION_LISTINGS = {
+    "sandbike": 3,
+    "buggy": 4,
+    "lightornithopter": 4,       # scout wings
+    "mediumornithopter": 6,      # assault wings (Mk5/Mk6 only in the catalog)
+    "transportornithopter": 8,   # carrier wings
+}
 AUGMENT_TEMPLATE_RE = re.compile(r"^T\d+_Augment_", re.IGNORECASE)
 GRADE_MULTIPLIERS = [1.0, 1.0, 1.25, 1.5, 1.75, 2.0]
 VENDOR_MULT = {"common": 1.0, "rare": 5.0, "unique": 5.0, "memento": 2.0}
@@ -251,6 +266,24 @@ def kind_for(category: str, is_schematic: bool) -> str:
     return "equippable"
 
 
+def listings_for(category: str, is_schematic: bool) -> int:
+    """How many identical listings to seed for one (template, grade) row.
+
+    Most items use LISTINGS_PER_GRADE (2). Vehicle locomotion — sandbike /
+    buggy treads and ornithopter wings — is stocked deeper because those parts
+    wear out and are a common repurchase. Assault wings only exist at Mk5/Mk6
+    in the catalog; carrier wings only at Mk6 — each existing rank still gets
+    the full count below. Schematics are never overstocked.
+    """
+    if is_schematic:
+        return LISTINGS_PER_GRADE
+    # items/vehicles/<family>/locomotion
+    parts = category.split("/")
+    if len(parts) >= 4 and parts[0] == "items" and parts[1] == "vehicles" and parts[3] == "locomotion":
+        return LOCOMOTION_LISTINGS.get(parts[2], LISTINGS_PER_GRADE)
+    return LISTINGS_PER_GRADE
+
+
 def is_rankable_category(category: str) -> bool:
     """Armor/weapons/stillsuits/augments — the only families that use quality ranks."""
     return any(
@@ -419,7 +452,7 @@ def main() -> None:
                     "category_depth": depth,
                     "quality_level": grade,
                     "special_boost": False,
-                    "listings": LISTINGS_PER_GRADE,
+                    "listings": listings_for(category, is_schematic),
                     "durability_cur": dur,
                     "durability_max": dur,
                     "tier": tier,
@@ -482,7 +515,7 @@ def main() -> None:
 
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
-        "panel_version": "0.13.6",
+        "panel_version": "0.13.7",
         "price_multiplier": PRICE_MULTIPLIER,
         "market_bot_class": "Revy",
         "summary": summary,
@@ -493,6 +526,7 @@ def main() -> None:
             "Schematic grades 1-5 only for T6 rankable armor/weapons/stillsuits/augments; tools and Tier 1-5 stay quality 0.",
             "T6 rankable armor/weapons/stillsuits seed stock (q0) plus ranks 1-5; augments seed ranks 1-5 only (honor min_quality_level; no rank 0).",
             "Commodities use stack_max from the catalog. Absolute durability 100-200 by tier/grade is stored on plan rows for item stats seeding; exchange order wear stays 1.0/1.0.",
+            "Vehicle locomotion stocks deeper than the default 2: sandbike treads 3, buggy treads 4, scout wings 4, assault wings 6, carrier wings 8 (per existing rank/template). Unique locomotion modules under those families use the same counts; schematics stay at 2.",
             "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story/NPC items, templates with no string-table name, unreleased resources (Water, Corpse), social wearables, unusable set packs.",
             "Write actions run through RedBlink's permissioned database:write addon bridge.",
         ],
