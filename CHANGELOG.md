@@ -4,6 +4,17 @@ Notable changes to the EDA Exchange Bot addon, authored and maintained by
 jeffstokes72 with n00bGames (Easy Dune Admin). Written for RedBlink (console
 maintainer review) and both addon authors, documenting what changed and why.
 
+## 0.13.9 - 2026-08-06
+
+### Fixed
+
+- **UI version stamp matches the package**: the preview status line reads
+  `panel_version` from `market-seed-plan.json`, which was still **0.13.7** after
+  the 0.13.8 reseed release, so the console showed the wrong build. The plan
+  stamp, generator, and package version are all **0.13.9**. The page header
+  now shows a version badge (from `addon.json` when the console serves it,
+  otherwise the plan stamp), and the document title includes the same version.
+
 ## 0.13.8 - 2026-08-06
 
 ### Added

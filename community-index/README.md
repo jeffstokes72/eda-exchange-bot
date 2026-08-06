@@ -1,4 +1,4 @@
-# Community index update for EDA Exchange Bot 0.13.8
+# Community index update for EDA Exchange Bot 0.13.9
 
 Staging copies of the two files that
 [Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)
@@ -9,17 +9,17 @@ and
 docs.
 
 `index.json` here updates only the `eda-exchange-bot` entry and `updatedAt`
-for 0.13.8.
+for 0.13.9.
 
-## Release checklist for 0.13.8
+## Release checklist for 0.13.9
 
-1. Current-version fields are **0.13.8**.
-2. Push tag `v0.13.8` so the Release workflow builds
-   `eda-exchange-bot-0.13.8.zip` with its `.sha256` asset:
-   https://github.com/jeffstokes72/eda-exchange-bot/releases/tag/v0.13.8
+1. Current-version fields are **0.13.9**.
+2. Push tag `v0.13.9` so the Release workflow builds
+   `eda-exchange-bot-0.13.9.zip` with its `.sha256` asset:
+   https://github.com/jeffstokes72/eda-exchange-bot/releases/tag/v0.13.9
 3. Fill `eda-exchange-bot.json` `sha256` from the published
-   `eda-exchange-bot-0.13.8.zip.sha256` asset (and verify with a local
-   `sha256sum eda-exchange-bot-0.13.8.zip` of the downloaded archive).
+   `eda-exchange-bot-0.13.9.zip.sha256` asset (and verify with a local
+   `sha256sum eda-exchange-bot-0.13.9.zip` of the downloaded archive).
 
 ## Submitting to Red-Blink/dune-docker-addons
 
@@ -30,10 +30,10 @@ for 0.13.8.
    release).
 3. In `index.json`, update **only** the `eda-exchange-bot` entry and
    `updatedAt`. Do not overwrite the whole file.
-4. Keep `downloadUrl` pinned to the `v0.13.8` release asset (not
+4. Keep `downloadUrl` pinned to the `v0.13.9` release asset (not
    `releases/latest/...`).
 5. Open a PR to `Red-Blink/dune-docker-addons` titled
-   **Update EDA Exchange Bot to 0.13.8**.
+   **Update EDA Exchange Bot to 0.13.9**.
 
 Permissions stay structured and include `scheduler:server`. Lifecycle fields
 stay in `index.json` only (not in this addon's `addon.json`).
