@@ -125,13 +125,24 @@
     if (!id) throw new Error("Exchange selection is invalid.");
     return id;
   }
+  // The buyback pricing inputs are interpolated into SQL like the exchange id,
+  // so they are clamped at the same boundary: a caller cannot hand a builder
+  // anything but an integer inside its control's own range. Anything missing
+  // falls back to the live control, which is what a one-shot caller wants.
+  function requireBuybackInputs({ multiplier, threshold, maxBuys } = {}) {
+    return {
+      multiplier: clampInteger(multiplier, currentMultiplier(), 1, 100),
+      threshold: clampInteger(threshold, currentThreshold(), 1, 100),
+      maxBuys: clampInteger(maxBuys, currentMaxBuys(), 1, 5000)
+    };
+  }
   function currentExchangeIdValue() {
     const raw = String(exchangeIdEl.value || "").trim();
     if (!raw) throw new Error("Choose an exchange before running this action.");
     return requireExchangeId(raw);
   }
-  function currentExchangeIdSql() {
-    return `v_exchange_id := ${currentExchangeIdValue()};`;
+  function currentExchangeIdSql(exchangeId = currentExchangeIdValue()) {
+    return `v_exchange_id := ${requireExchangeId(exchangeId)};`;
   }
 
   function persistSettings() {
@@ -435,10 +446,10 @@ ORDER BY is_global ASC, k.exchange_id ASC;`
   // forceClear is used by the unattended reseed: repeating a full seed on a
   // timer without clearing first would stack another ~6k bot listings onto the
   // exchange every interval.
-  function buildSeedSql({ forceClear = false } = {}) {
+  function buildSeedSql({ forceClear = false, exchangeId } = {}) {
     const rows = rowsForCurrentMultiplier();
     const valuesSql = valuesForSeedRows(rows);
-    const exchangeSql = currentExchangeIdSql();
+    const exchangeSql = currentExchangeIdSql(exchangeId);
     // Pre-seed cleanup is scoped to the selected exchange: without the
     // exchange_id condition, reseeding one exchange would delete the bot's
     // listings from every other seeded exchange.
@@ -632,8 +643,9 @@ COMMIT;`;
   // captureBuybackOperation) so one operation cannot classify against one set
   // of caps and write against another. The live UI values are only the
   // fallback for one-shot callers.
-  function buildBuybackSql(exchangeId, { multiplier, threshold = currentThreshold(), maxBuys = currentMaxBuys() } = {}) {
+  function buildBuybackSql(exchangeId, inputs) {
     const targetExchangeId = requireExchangeId(exchangeId);
+    const { multiplier, threshold, maxBuys } = requireBuybackInputs(inputs);
     const valuesSql = buybackPlanValuesSql({ multiplier, threshold });
     const planInsert = valuesSql
       ? `INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price) VALUES\n${valuesSql};`
@@ -726,7 +738,7 @@ COMMIT;`;
   // at least one player listing at or below the threshold.
   function buildBuybackEligibilitySql(exchangeId, inputs) {
     const targetExchangeId = requireExchangeId(exchangeId);
-    const valuesSql = buybackPlanValuesSql(inputs);
+    const valuesSql = buybackPlanValuesSql(requireBuybackInputs(inputs));
     if (!valuesSql) {
       return `SELECT '0' AS eligible_orders;`;
     }
@@ -752,7 +764,7 @@ WHERE o.exchange_id = ${targetExchangeId}
   // Caps come only from the seeded plan — there is no live market average.
   function buildBuybackClassifySql(exchangeId, inputs) {
     const targetExchangeId = requireExchangeId(exchangeId);
-    const valuesSql = buybackPlanValuesOrNullSql(inputs);
+    const valuesSql = buybackPlanValuesOrNullSql(requireBuybackInputs(inputs));
     return `WITH market_buy_plan(template_id, quality_level, max_unit_price) AS (
     VALUES
 ${valuesSql}
@@ -915,6 +927,22 @@ COMMIT;`;
     }
   }
 
+  // Seeding builds its SQL before the first await, so the statement itself
+  // cannot drift, but the exchange is still read again after the write to
+  // remember what was seeded. Capture it up front and hand the same value to
+  // both, so a selector change during the write cannot save the wrong exchange.
+  function runSeedWrite(label, { forceClear = false, confirmPrompt = true } = {}) {
+    let exchangeId;
+    try {
+      exchangeId = currentExchangeIdValue();
+    } catch (error) {
+      statusEl.className = "status error";
+      statusEl.textContent = error.message || String(error);
+      return Promise.resolve(false);
+    }
+    return runWrite(label, () => buildSeedSql({ forceClear, exchangeId }), { confirmPrompt, exchangeId });
+  }
+
   function buybackCodeHex(code) {
     const number = Number(code);
     if (!Number.isFinite(number) || number < 0) return "0x?";
@@ -1068,9 +1096,9 @@ COMMIT;`;
       return beforeEntries;
     }
     const remaining = new Set(afterEntries.map((entry) => entry.order_id));
-    // The write's own Max Buys, not whatever the input holds now: the leftover
-    // ranking below has to match the limit the sweep actually ran with.
-    const maxBuys = inputs.maxBuys ?? currentMaxBuys();
+    // The write's own Max Buys, not whatever the control holds now: the
+    // leftover ranking below has to match the limit the sweep actually ran with.
+    const { maxBuys } = requireBuybackInputs(inputs);
     const originallyEligible = beforeEntries
       .filter((entry) => entry.result_code === 0 && entry.result_label === "eligible")
       .slice()
@@ -1163,11 +1191,10 @@ WHERE f.completion_type = 4
   function captureBuybackOperation(options = {}) {
     return {
       exchangeId: options.exchangeId ? requireExchangeId(options.exchangeId) : currentExchangeIdValue(),
-      inputs: {
-        multiplier: currentMultiplier(),
-        threshold: currentThreshold(),
-        maxBuys: currentMaxBuys()
-      }
+      // An automatic tick probes eligibility before it sweeps and hands its own
+      // capture down, so the write applies the rules the probe measured rather
+      // than whatever the controls hold once the probe answers.
+      inputs: requireBuybackInputs(options.inputs)
     };
   }
 
@@ -1295,7 +1322,7 @@ WHERE f.completion_type = 4
         return;
       }
       setAutoStatus(`Auto buyback: ${eligible.toLocaleString()} eligible player listings found on exchange ${exchangeId}; running sweep...`);
-      const ok = await runBuybackSweep("Auto buyback sweep", { confirmPrompt: false, exchangeId });
+      const ok = await runBuybackSweep("Auto buyback sweep", { confirmPrompt: false, exchangeId, inputs });
       if (ok) {
         setAutoStatus(`Auto buyback: sweep finished at ${new Date().toLocaleTimeString()}. ${describeMarketOpsSchedule()}.`, "status ok");
       } else {
@@ -1316,7 +1343,7 @@ WHERE f.completion_type = 4
     nextAutoSeedAt = Date.now() + currentAutoSeedIntervalMinutes() * 60000;
     try {
       setAutoStatus("Auto seed: replacing NPC sell market...");
-      const ok = await runWrite("Auto seed NPC sell market", () => buildSeedSql({ forceClear: true }), { confirmPrompt: false });
+      const ok = await runSeedWrite("Auto seed NPC sell market", { forceClear: true, confirmPrompt: false });
       if (ok) {
         setAutoStatus(`Auto seed: finished at ${new Date().toLocaleTimeString()}. ${describeMarketOpsSchedule()}.`, "status ok");
       } else {
@@ -1642,7 +1669,7 @@ WHERE f.completion_type = 4
   document.getElementById("refreshPreview").addEventListener("click", refreshPreview);
   document.getElementById("refreshExchanges").addEventListener("click", () => void loadExchanges());
   document.getElementById("addExchange").addEventListener("click", addManualExchange);
-  document.getElementById("seedMarket").addEventListener("click", () => void runWrite("Seed NPC sell market", buildSeedSql));
+  document.getElementById("seedMarket").addEventListener("click", () => void runSeedWrite("Seed NPC sell market"));
   document.getElementById("buySweep").addEventListener("click", () => void runBuybackSweep("Run buyback sweep"));
   document.getElementById("refreshBuybackLog").addEventListener("click", () => void refreshBuybackLogDryRun());
   document.getElementById("clearBuybackLog").addEventListener("click", clearBuybackLog);

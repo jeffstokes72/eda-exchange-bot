@@ -380,6 +380,54 @@ test("an automatic sweep writes to the exchange its eligibility probe measured",
   assert.match(batchHeading(harness), /Auto buyback sweep\s*Exchange 77/);
 });
 
+test("an automatic sweep writes with the settings its eligibility probe measured", async () => {
+  // The probe decides whether to write at all, so the write has to apply the
+  // same rules the probe counted with. Passing only the exchange down left the
+  // sweep re-reading the multiplier, threshold, and Max Buys controls.
+  const harness = await twoExchangeHarness();
+  harness.setValue("priceMultiplier", 5);
+  harness.setValue("buybackPercent", 60);
+  harness.setValue("maxBuys", 250);
+  harness.setCheckbox("autoBuyback", true);
+
+  const eligibilityQueries = [];
+  const probe = pausable();
+  harness.onQuery = async ({ query }) => {
+    const text = String(query || "");
+    if (text.includes("eligible_orders")) {
+      eligibilityQueries.push(text);
+      await probe.paused;
+      return { rows: [{ eligible_orders: "3" }] };
+    }
+    return { rows: [] };
+  };
+  harness.onExecute = async () => ({ rows: [] });
+
+  harness.advanceTime(31 * 60000);
+  harness.autoTick();
+  await harness.waitFor(() => eligibilityQueries.length === 1, { label: "eligibility probe" });
+
+  // Every input the sweep interpolates moves while the probe is in flight.
+  harness.setValue("priceMultiplier", 10);
+  harness.setValue("buybackPercent", 50);
+  harness.setValue("maxBuys", 1);
+  selectExchange(harness, SWITCHED);
+  probe.release();
+
+  await harness.waitFor(() => harness.executedSql().length === 1, { label: "auto sweep write" });
+  const sql = harness.executedSql()[0];
+
+  // TestOre is seeded at 500 for multiplier 5, so the probe's caps are 60%=300.
+  assert.ok(eligibilityQueries[0].includes("('TestOre',0,300)"), "the probe counted against the 60% caps");
+  assertScopedTo(sql, "auto write SQL");
+  assert.ok(sql.includes("('TestOre',0,300)"), "the write must price against the caps the probe measured");
+  assert.ok(!sql.includes("('TestOre',0,250)"), "the mid-probe 50% threshold must not reach the write");
+  assert.ok(!sql.includes("('TestOre',0,600)"), "the mid-probe 10x multiplier must not reach the write");
+  assert.ok(sql.includes("LIMIT 250 FOR UPDATE"), "the write must use the Max Buys the probe ran with");
+  assert.ok(sql.includes("v_solari, 60, 250);"), "the reported threshold and Max Buys must match the probe");
+  assert.ok(sql.includes("r.rn > 250 THEN 5 ELSE 6"), "leftover ranking must use the captured Max Buys");
+});
+
 test("an idle auto tick logs the exchange it probed", async () => {
   const harness = await twoExchangeHarness();
   harness.setCheckbox("autoBuyback", true);
@@ -516,7 +564,7 @@ test("log batches stored without an exchange id stay visible as legacy", async (
   assert.match(harness.el("buybackLogMeta").textContent, /Legacy exchange unknown/);
 });
 
-test("buyback actions without a usable exchange report an error instead of failing silently", async () => {
+test("buyback and seed actions without a usable exchange report an error instead of failing silently", async () => {
   // The capture throws when nothing is selected. It has to be caught and shown:
   // an unhandled rejection would leave the admin with no feedback at all (and
   // fails this suite outright).
@@ -533,6 +581,50 @@ test("buyback actions without a usable exchange report an error instead of faili
   harness.el("refreshBuybackLog").click();
   await harness.waitFor(() => harness.statusText().includes("Choose an exchange"), { label: "dry-run rejection" });
   assert.ok(harness.el("status").className.includes("error"));
+
+  harness.el("seedMarket").click();
+  await harness.flush();
+  assert.ok(harness.el("status").className.includes("error"), `seed status: ${harness.statusText()}`);
+  assert.match(harness.statusText(), /Choose an exchange|not loaded/);
+  assert.equal(harness.executedSql().length, 0, "seeding must not run without an exchange");
+});
+
+test("a seed write saves the exchange it seeded, not one selected while it ran", async () => {
+  // Seed SQL is built before the first await, so the statement cannot drift.
+  // The exchange was still re-read afterwards to record what had been seeded.
+  const harness = await createHarness();
+  await harness.loadExchangesWithRows([exchangeRow({ exchange_id: CAPTURED, access_point_count: "1" })]);
+
+  // An exchange the addon has never seen: it can only reach the remembered
+  // list by being saved after this write.
+  const unseen = harness.document.createElement("option");
+  unseen.value = "4242";
+  unseen.textContent = "Exchange 4242";
+  harness.el("exchangeId").appendChild(unseen);
+
+  const write = pausable();
+  let seedSql = null;
+  harness.onQuery = async () => ({ rows: [] });
+  harness.onExecute = async ({ query }) => {
+    seedSql = String(query || "");
+    await write.paused;
+    return { rows: [] };
+  };
+
+  harness.el("seedMarket").click();
+  await harness.waitFor(() => seedSql !== null, { label: "seed write" });
+  harness.el("exchangeId").value = "4242";
+  write.release();
+  await harness.waitFor(() => harness.statusText().includes("complete"), { label: "seed completion" });
+
+  assert.ok(seedSql.includes(`v_exchange_id := ${CAPTURED};`), "seed SQL targets the exchange chosen at click time");
+  assert.ok(!seedSql.includes("v_exchange_id := 4242;"));
+  const remembered = JSON.parse(harness.window.localStorage.getItem("eda-exchange-bot.remembered-exchanges"));
+  assert.ok(remembered.includes(CAPTURED), `the seeded exchange must be saved: ${JSON.stringify(remembered)}`);
+  assert.ok(
+    !remembered.includes("4242"),
+    `an exchange selected while the seed ran must not be saved as seeded: ${JSON.stringify(remembered)}`
+  );
 });
 
 test("an unusable selector value fails one auto tick without wedging market ops", async () => {
