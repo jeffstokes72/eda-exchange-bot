@@ -4,6 +4,23 @@ Notable changes to the EDA Exchange Bot addon, authored and maintained by
 jeffstokes72 with n00bGames (Easy Dune Admin). Written for RedBlink (console
 maintainer review) and both addon authors, documenting what changed and why.
 
+## 0.13.7 - 2026-08-06
+
+### Changed
+
+- **Vehicle locomotion seeds deeper stock**: treads and ornithopter wings wear
+  out and are a common repurchase, so the seed plan overstocks them by family
+  (still one row per existing template/rank — assault only has Mk5/Mk6, carrier
+  only Mk6):
+  - sandbike treads: **3**
+  - buggy treads: **4**
+  - scout (light) wings: **4**
+  - assault (medium) wings: **6**
+  - carrier (transport) wings: **8**
+  Unique locomotion modules under those families (Albatross, Hummingbird, Roc)
+  use the same counts; schematics and sandcrawler / treadwheel locomotion stay
+  at the default **2**. Reseed after upgrading to pick up the new depths.
+
 ## 0.13.6 - 2026-08-06
 
 ### Fixed

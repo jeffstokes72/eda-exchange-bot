@@ -1,15 +1,15 @@
 {
-  "generated_at": "2026-08-06T13:28:23+00:00",
-  "panel_version": "0.13.6",
+  "generated_at": "2026-08-06T13:35:26+00:00",
+  "panel_version": "0.13.7",
   "price_multiplier": 5,
   "market_bot_class": "Revy",
   "summary": {
-    "listings": 5820,
+    "listings": 5874,
     "unique_rows": 2910,
     "unique_templates": 1465,
     "price_multiplier": 5,
     "listings_per_grade": 2,
-    "equippable_listings": 2922,
+    "equippable_listings": 2976,
     "schematic_listings": 2464,
     "resource_listings": 198,
     "ammunition_listings": 12,
@@ -1423,7 +1423,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 145.0,
       "durability_max": 145.0
     },
@@ -1451,7 +1451,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 165.0,
       "durability_max": 165.0
     },
@@ -1479,7 +1479,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 180.0,
       "durability_max": 180.0
     },
@@ -2319,7 +2319,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 6,
       "durability_cur": 165.0,
       "durability_max": 165.0
     },
@@ -2333,7 +2333,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 6,
       "durability_cur": 180.0,
       "durability_max": 180.0
     },
@@ -4797,7 +4797,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 125.0,
       "durability_max": 125.0
     },
@@ -4811,7 +4811,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 145.0,
       "durability_max": 145.0
     },
@@ -4825,7 +4825,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 165.0,
       "durability_max": 165.0
     },
@@ -4839,7 +4839,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 180.0,
       "durability_max": 180.0
     },
@@ -6505,7 +6505,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 8,
       "durability_cur": 180.0,
       "durability_max": 180.0
     },
@@ -16571,7 +16571,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 6,
       "durability_cur": 165.0,
       "durability_max": 165.0
     },
@@ -16599,7 +16599,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 6,
       "durability_cur": 180.0,
       "durability_max": 180.0
     },
@@ -31117,7 +31117,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 8,
       "durability_cur": 180.0,
       "durability_max": 180.0
     },
@@ -31817,7 +31817,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 3,
       "durability_cur": 100.0,
       "durability_max": 100.0
     },
@@ -31831,7 +31831,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 3,
       "durability_cur": 110.0,
       "durability_max": 110.0
     },
@@ -31845,7 +31845,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 3,
       "durability_cur": 125.0,
       "durability_max": 125.0
     },
@@ -31859,7 +31859,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 3,
       "durability_cur": 145.0,
       "durability_max": 145.0
     },
@@ -31873,7 +31873,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 3,
       "durability_cur": 165.0,
       "durability_max": 165.0
     },
@@ -31887,7 +31887,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 3,
       "durability_cur": 180.0,
       "durability_max": 180.0
     },
@@ -33007,7 +33007,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 145.0,
       "durability_max": 145.0
     },
@@ -33021,7 +33021,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 165.0,
       "durability_max": 165.0
     },
@@ -33035,7 +33035,7 @@
       "category_depth": 3,
       "quality_level": 0,
       "special_boost": false,
-      "listings": 2,
+      "listings": 4,
       "durability_cur": 180.0,
       "durability_max": 180.0
     },
@@ -41263,6 +41263,7 @@
     "Schematic grades 1-5 only for T6 rankable armor/weapons/stillsuits/augments; tools and Tier 1-5 stay quality 0.",
     "T6 rankable armor/weapons/stillsuits seed stock (q0) plus ranks 1-5; augments seed ranks 1-5 only (honor min_quality_level; no rank 0).",
     "Commodities use stack_max from the catalog. Absolute durability 100-200 by tier/grade is stored on plan rows for item stats seeding; exchange order wear stays 1.0/1.0.",
+    "Vehicle locomotion stocks deeper than the default 2: sandbike treads 3, buggy treads 4, scout wings 4, assault wings 6, carrier wings 8 (per existing rank/template). Unique locomotion modules under those families use the same counts; schematics stay at 2.",
     "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story/NPC items, templates with no string-table name, unreleased resources (Water, Corpse), social wearables, unusable set packs.",
     "Write actions run through RedBlink's permissioned database:write addon bridge."
   ],
