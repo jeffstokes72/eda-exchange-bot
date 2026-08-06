@@ -20,10 +20,11 @@ for 0.13.5.
    0.13.5 supersedes 0.13.4 (published, then superseded by review feedback)
    and 0.13.3 (rolled back before it reached the catalog). PR #21 still points
    at v0.13.2, so this update moves it straight from 0.13.2 to 0.13.5.
-3. Copy the published asset's checksum into `eda-exchange-bot.json` `sha256`
-   (empty until the release exists). Verify it against the published
+3. Checksum
+   `c725c88dd8d019b0b851c2f766322f2372c40e0a1604d63e2fe046e51fc767df`
+   is filled into `eda-exchange-bot.json` `sha256`. It matches the published
    `eda-exchange-bot-0.13.5.zip.sha256` asset and a local
-   `sha256sum` of the downloaded archive.
+   `sha256sum eda-exchange-bot-0.13.5.zip` of the downloaded archive.
 
 ## Submitting to Red-Blink/dune-docker-addons
 
