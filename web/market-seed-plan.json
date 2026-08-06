@@ -1,22 +1,22 @@
 {
-  "generated_at": "2026-07-28T18:54:54+00:00",
-  "panel_version": "0.13.5",
+  "generated_at": "2026-08-06T13:28:23+00:00",
+  "panel_version": "0.13.6",
   "price_multiplier": 5,
   "market_bot_class": "Revy",
   "summary": {
-    "listings": 5836,
-    "unique_rows": 2918,
-    "unique_templates": 1473,
+    "listings": 5820,
+    "unique_rows": 2910,
+    "unique_templates": 1465,
     "price_multiplier": 5,
     "listings_per_grade": 2,
-    "equippable_listings": 2932,
+    "equippable_listings": 2922,
     "schematic_listings": 2464,
-    "resource_listings": 204,
+    "resource_listings": 198,
     "ammunition_listings": 12,
     "consumable_listings": 18,
     "utility_listings": 194,
     "cartography_listings": 12,
-    "resource_units": 97450
+    "resource_units": 96446
   },
   "category_counts": [
     {
@@ -97,7 +97,7 @@
     },
     {
       "category": "17301504 / depth 2",
-      "listings": 39
+      "listings": 38
     },
     {
       "category": "16974080 / depth 3",
@@ -124,10 +124,6 @@
       "listings": 28
     },
     {
-      "category": "17170432 / depth 2",
-      "listings": 27
-    },
-    {
       "category": "131840 / depth 3",
       "listings": 27
     },
@@ -140,20 +136,16 @@
       "listings": 26
     },
     {
+      "category": "17170432 / depth 2",
+      "listings": 26
+    },
+    {
       "category": "16908288 / depth 2",
       "listings": 26
     },
     {
       "category": "33621760 / depth 3",
       "listings": 26
-    },
-    {
-      "category": "17367040 / depth 2",
-      "listings": 24
-    },
-    {
-      "category": "17235968 / depth 2",
-      "listings": 24
     },
     {
       "category": "16975360 / depth 3",
@@ -176,15 +168,19 @@
       "listings": 23
     },
     {
+      "category": "17367040 / depth 2",
+      "listings": 23
+    },
+    {
+      "category": "17235968 / depth 2",
+      "listings": 23
+    },
+    {
       "category": "17039360 / depth 2",
       "listings": 23
     },
     {
       "category": "16974592 / depth 3",
-      "listings": 19
-    },
-    {
-      "category": "84082688 / depth 2",
       "listings": 19
     },
     {
@@ -205,6 +201,10 @@
     },
     {
       "category": "16975104 / depth 3",
+      "listings": 16
+    },
+    {
+      "category": "84082688 / depth 2",
       "listings": 16
     },
     {
@@ -272,10 +272,6 @@
       "listings": 10
     },
     {
-      "category": "17432576 / depth 2",
-      "listings": 9
-    },
-    {
       "category": "33948928 / depth 3",
       "listings": 9
     },
@@ -297,6 +293,10 @@
     },
     {
       "category": "33948416 / depth 3",
+      "listings": 8
+    },
+    {
+      "category": "17432576 / depth 2",
       "listings": 8
     },
     {
@@ -7677,20 +7677,6 @@
       "kind": "resource",
       "stack_size": 500,
       "price": 100,
-      "category_mask": 84082688,
-      "category_depth": 2,
-      "quality_level": 0,
-      "special_boost": false,
-      "listings": 2,
-      "durability_cur": 100.0,
-      "durability_max": 100.0
-    },
-    {
-      "template_id": "Corpse",
-      "display_name": "Corpse",
-      "kind": "resource",
-      "stack_size": 1,
-      "price": 2500,
       "category_mask": 84082688,
       "category_depth": 2,
       "quality_level": 0,
@@ -15300,20 +15286,6 @@
       "listings": 2,
       "durability_cur": 110.0,
       "durability_max": 110.0
-    },
-    {
-      "template_id": "HarkArEliteNPC",
-      "display_name": "HarkArEliteNPC",
-      "kind": "equippable",
-      "stack_size": 1,
-      "price": 1300000,
-      "category_mask": 17301504,
-      "category_depth": 2,
-      "quality_level": 0,
-      "special_boost": false,
-      "listings": 2,
-      "durability_cur": 100.0,
-      "durability_max": 100.0
     },
     {
       "template_id": "OrnithopterLightScanner_Unique_LongRange_05_Schematic",
@@ -24178,20 +24150,6 @@
       "durability_max": 165.0
     },
     {
-      "template_id": "Mouse_Corpse",
-      "display_name": "Mouse Corpse",
-      "kind": "resource",
-      "stack_size": 1,
-      "price": 2500,
-      "category_mask": 84082688,
-      "category_depth": 2,
-      "quality_level": 0,
-      "special_boost": false,
-      "listings": 2,
-      "durability_cur": 100.0,
-      "durability_max": 100.0
-    },
-    {
       "template_id": "Stillsuit_Choam_04_Top",
       "display_name": "Native Stillsuit Body",
       "kind": "equippable",
@@ -27861,7 +27819,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "equippable",
       "stack_size": 1,
       "price": 19000000,
@@ -27875,7 +27833,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "equippable",
       "stack_size": 1,
       "price": 23500000,
@@ -27889,7 +27847,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "equippable",
       "stack_size": 1,
       "price": 28000000,
@@ -27903,7 +27861,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "equippable",
       "stack_size": 1,
       "price": 33000000,
@@ -27917,7 +27875,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "equippable",
       "stack_size": 1,
       "price": 37500000,
@@ -27931,7 +27889,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1_Schematic",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "schematic",
       "stack_size": 1,
       "price": 1900000,
@@ -27945,7 +27903,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1_Schematic",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "schematic",
       "stack_size": 1,
       "price": 2400000,
@@ -27959,7 +27917,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1_Schematic",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "schematic",
       "stack_size": 1,
       "price": 2800000,
@@ -27973,7 +27931,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1_Schematic",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "schematic",
       "stack_size": 1,
       "price": 3300000,
@@ -27987,7 +27945,7 @@
     },
     {
       "template_id": "T6_Augment_Ch5_Fireballer1_Schematic",
-      "display_name": "Pyrocket Decimator ",
+      "display_name": "Pyrocket Decimator",
       "kind": "schematic",
       "stack_size": 1,
       "price": 3800000,
@@ -31192,20 +31150,6 @@
       "durability_max": 165.0
     },
     {
-      "template_id": "RocketLauncher_1",
-      "display_name": "RocketLauncher_1",
-      "kind": "equippable",
-      "stack_size": 1,
-      "price": 440000,
-      "category_mask": 17432576,
-      "category_depth": 2,
-      "quality_level": 0,
-      "special_boost": false,
-      "listings": 2,
-      "durability_cur": 100.0,
-      "durability_max": 100.0
-    },
-    {
       "template_id": "UniqueAr4",
       "display_name": "Salusan Vengeance",
       "kind": "equippable",
@@ -32464,20 +32408,6 @@
       "listings": 2,
       "durability_cur": 200.0,
       "durability_max": 200.0
-    },
-    {
-      "template_id": "ScattergunEliteNPC",
-      "display_name": "ScattergunEliteNPC",
-      "kind": "equippable",
-      "stack_size": 1,
-      "price": 1400000,
-      "category_mask": 17235968,
-      "category_depth": 2,
-      "quality_level": 0,
-      "special_boost": false,
-      "listings": 2,
-      "durability_cur": 100.0,
-      "durability_max": 100.0
     },
     {
       "template_id": "Combat_Nati_ScavengerRags02_Boots",
@@ -34483,7 +34413,7 @@
     },
     {
       "template_id": "UniqueSword_02",
-      "display_name": "Shock-sword ",
+      "display_name": "Shock-sword",
       "kind": "equippable",
       "stack_size": 1,
       "price": 480000,
@@ -34497,7 +34427,7 @@
     },
     {
       "template_id": "UniqueSword_02_Schematic",
-      "display_name": "Shock-sword ",
+      "display_name": "Shock-sword",
       "kind": "schematic",
       "stack_size": 1,
       "price": 100000,
@@ -34852,34 +34782,6 @@
       "stack_size": 1,
       "price": 2500,
       "category_mask": 83886080,
-      "category_depth": 2,
-      "quality_level": 0,
-      "special_boost": false,
-      "listings": 2,
-      "durability_cur": 100.0,
-      "durability_max": 100.0
-    },
-    {
-      "template_id": "SmugDmrParaNPC",
-      "display_name": "SmugDmrParaNPC",
-      "kind": "equippable",
-      "stack_size": 1,
-      "price": 1400000,
-      "category_mask": 17170432,
-      "category_depth": 2,
-      "quality_level": 0,
-      "special_boost": false,
-      "listings": 2,
-      "durability_cur": 100.0,
-      "durability_max": 100.0
-    },
-    {
-      "template_id": "SmugShotEliteNPC",
-      "display_name": "SmugShotEliteNPC",
-      "kind": "equippable",
-      "stack_size": 1,
-      "price": 1400000,
-      "category_mask": 17367040,
       "category_depth": 2,
       "quality_level": 0,
       "special_boost": false,
@@ -35715,7 +35617,7 @@
     },
     {
       "template_id": "Scattergun_Prototype",
-      "display_name": "Standard GRDA 44 ",
+      "display_name": "Standard GRDA 44",
       "kind": "equippable",
       "stack_size": 1,
       "price": 17000,
@@ -36233,7 +36135,7 @@
     },
     {
       "template_id": "Combat_Light_Unique_Stamina_Bottom_05",
-      "display_name": "Stim-Leggings ",
+      "display_name": "Stim-Leggings",
       "kind": "equippable",
       "stack_size": 1,
       "price": 2200000,
@@ -36247,7 +36149,7 @@
     },
     {
       "template_id": "Combat_Light_Unique_Stamina_Bottom_05_Schematic",
-      "display_name": "Stim-Leggings ",
+      "display_name": "Stim-Leggings",
       "kind": "schematic",
       "stack_size": 1,
       "price": 750000,
@@ -37031,7 +36933,7 @@
     },
     {
       "template_id": "Radiation_Suit_T6_Unique_Armored_Schematic",
-      "display_name": "Tactical Radiation Suit ",
+      "display_name": "Tactical Radiation Suit",
       "kind": "schematic",
       "stack_size": 1,
       "price": 1900000,
@@ -40516,20 +40418,6 @@
       "durability_max": 180.0
     },
     {
-      "template_id": "WaterItem",
-      "display_name": "Water",
-      "kind": "resource",
-      "stack_size": 500,
-      "price": 1,
-      "category_mask": 84082688,
-      "category_depth": 2,
-      "quality_level": 0,
-      "special_boost": false,
-      "listings": 2,
-      "durability_cur": 100.0,
-      "durability_max": 100.0
-    },
-    {
       "template_id": "UniqueSda5",
       "display_name": "Way of the Desert",
       "kind": "equippable",
@@ -40573,7 +40461,7 @@
     },
     {
       "template_id": "UniqueSda1",
-      "display_name": "Way of the Fallen ",
+      "display_name": "Way of the Fallen",
       "kind": "equippable",
       "stack_size": 1,
       "price": 120000,
@@ -41375,10 +41263,11 @@
     "Schematic grades 1-5 only for T6 rankable armor/weapons/stillsuits/augments; tools and Tier 1-5 stay quality 0.",
     "T6 rankable armor/weapons/stillsuits seed stock (q0) plus ranks 1-5; augments seed ranks 1-5 only (honor min_quality_level; no rank 0).",
     "Commodities use stack_max from the catalog. Absolute durability 100-200 by tier/grade is stored on plan rows for item stats seeding; exchange order wear stays 1.0/1.0.",
-    "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story items, social wearables, unusable set packs.",
+    "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story/NPC items, templates with no string-table name, unreleased resources (Water, Corpse), social wearables, unusable set packs.",
     "Write actions run through RedBlink's permissioned database:write addon bridge."
   ],
   "unsafe_template_ids": [
+    "AtreLMGRadiationNPC",
     "B1C4_NPCweapon_Cryo_HeavyPistol",
     "B1C4_NPCweapon_Cryo_Karpov",
     "B1C4_NPCweapon_Cryo_LMG",
@@ -41389,16 +41278,26 @@
     "B1C4_NPCweapon_Cryo_Spitdart",
     "B1C4_TaligariPistol",
     "BuggyBoost_0",
+    "BuggyBoost_7",
     "BuggyChassis_0",
+    "BuggyChassis_7",
     "BuggyEngine_0",
+    "BuggyEngine_7",
     "BuggyGenerator_0",
+    "BuggyGenerator_PolarCap_6",
     "BuggyHullBackExtra_0",
+    "BuggyHullBackExtra_7",
     "BuggyHullBack_0",
+    "BuggyHullBack_7",
     "BuggyHullFront_0",
+    "BuggyHullFront_7",
     "BuggyInventory_0",
+    "BuggyInventory_7",
     "BuggyLauncher_0",
     "BuggyLocomotion_0",
+    "BuggyLocomotion_7",
     "BuggyMining_0",
+    "BuggyMining_Polarcap_6",
     "CHOAMSword_2_Poison_NPC",
     "ChoamFlameThrower_T4",
     "ChoamStaticCompactorSchematic",
@@ -41407,6 +41306,7 @@
     "Combat_Light_B1C4_Unique_Top1",
     "Combat_Light_Unique_Story_Jackal_Helmet",
     "ContractSeronVarlinDamasteelSword",
+    "Corpse",
     "Crysknife",
     "Crysknife_CR",
     "Crysknife_Schematic",
@@ -41746,9 +41646,12 @@
     "Ghola_NPC_Knife_01",
     "Ghola_NPC_Knife_02",
     "Ghola_NPC_Knife_03",
+    "HarkArEliteNPC",
+    "HarkHeavyPistolNPC",
     "Hark_AR_T4_Poison",
     "HoltzmanShieldActiveDrainNPC",
     "HoltzmanShieldActiveDrain_Story_Paranoid",
+    "HoltzmanShieldActiveDrain_Unique_B1C4_1",
     "Hook_01",
     "InsulatedCryo_Combat_Heavy06_Unique_Boots",
     "InsulatedCryo_Combat_Heavy06_Unique_Bottom",
@@ -41781,23 +41684,40 @@
     "Insulated_Combat_Choam_Light06_Unique_Helmet",
     "Insulated_Combat_Choam_Light06_Unique_Top",
     "Minotaur_Memento",
+    "Mouse_Corpse",
     "NPE_ScrapMetalKnife",
     "OrnithopterLightChassis_0",
     "OrnithopterLightEngine_0",
     "OrnithopterLightGenerator_0",
+    "OrnithopterLightGenerator_PolarCap_6",
     "OrnithopterLightHullFront_0",
     "OrnithopterLightLocomotion_0",
+    "OrnithopterMediumGenerator_PolarCap_6",
+    "OrnithopterTransportGenerator_PolarCap_6",
+    "RocketLauncher_1",
     "SandbikeBoost_0",
+    "SandbikeBoost_7",
     "SandbikeChassis_0",
+    "SandbikeChassis_7",
     "SandbikeEngine_0",
+    "SandbikeEngine_7",
     "SandbikeGenerator_0",
+    "SandbikeGenerator_PolarCap_6",
     "SandbikeHull_0",
+    "SandbikeHull_7",
     "SandbikeInventory_0",
+    "SandbikeInventory_7",
     "SandbikeLocomotion_0",
+    "SandbikeLocomotion_7",
+    "SandbikeScanner_7",
     "SandbikeSeat_0",
     "SardaukarSword_1",
     "Sardaukar_Dagger_CR",
+    "ScattergunEliteNPC",
+    "Scattergun_Prototype_RadiationNPC",
     "ScrapMetalKnife_NPENPC",
+    "SmugDmrParaNPC",
+    "SmugShotEliteNPC",
     "Social_Atre_Casual03_Unique_Story_TheBloodline_Bottom",
     "Social_Atre_Casual03_Unique_Story_TheBloodline_Shoes",
     "Social_Atre_Casual03_Unique_Story_TheBloodline_Top",
@@ -41823,6 +41743,7 @@
     "TreadwheelGenerator_1",
     "TreadwheelGenerator_2",
     "TreadwheelGenerator_3",
+    "TreadwheelGenerator_PolarCap_6",
     "TreadwheelInventory_0",
     "TreadwheelInventory_1",
     "TreadwheelInventory_3",
@@ -41845,16 +41766,20 @@
     "TreadwheelScanner_4",
     "TreadwheelScanner_5",
     "TreadwheelScanner_6",
+    "UniqueAr_Burst_RadiationNPC",
     "UniqueDirk_Story_Feyd",
     "UniqueSda_Story_Ari",
     "UniqueSword_05_Damasteel_Schematic",
+    "WaterItem",
     "WormTooth"
   ],
   "generation": {
     "excluded": {
       "non-tradeable": 146,
       "social": 17,
-      "plot/placeholder": 28
+      "unreleased": 3,
+      "plot/placeholder": 32,
+      "missing-name": 1
     },
     "skipped_unknown_category_mask": 0,
     "source": "data/item-data.json"

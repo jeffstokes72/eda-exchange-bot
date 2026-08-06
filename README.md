@@ -32,7 +32,10 @@ them.
   stillsuits and augments), schematics, vehicle components, materials,
   ammunition, consumables, utility items, fuel, and cartography from a
   bundled plan generated from Easy Dune Admin's `item-data.json`, with a
-  configurable price multiplier.
+  configurable price multiplier. Templates with no string-table name (they
+  render as `<MISSING STRING TABLE ENTRY>` in-game), NPC/plot/placeholder
+  ids, and unreleased resources (Water, Corpse) are excluded; **Drop Unsafe
+  NPC Listings** clears leftovers from earlier seed builds.
 - **Grades baked into the seed**: only T6 gradeable armor/weapons/stillsuits
   ship stock (q0) plus ranks 1–5; **augments ship ranks 1–5 only** (no rank 0,
   and catalog `min_quality_level` when higher — Console itself lifts any
@@ -232,17 +235,17 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.13.5
-   git push origin v0.13.5
+   git tag v0.13.6
+   git push origin v0.13.6
    ```
 
-The tag **must** be `v` + `addon.json.version` (for example `v0.13.5`). The
+The tag **must** be `v` + `addon.json.version` (for example `v0.13.6`). The
 release workflow refuses a mismatched tag. GitHub Actions validates the addon,
 packages `addon.json` + `web/`, creates the GitHub Release, and uploads:
 
 ```text
-eda-exchange-bot-0.13.5.zip
-eda-exchange-bot-0.13.5.zip.sha256
+eda-exchange-bot-0.13.6.zip
+eda-exchange-bot-0.13.6.zip.sha256
 ```
 
 Do not use GitHub's automatic source archives as the install package.
@@ -252,7 +255,7 @@ Do not use GitHub's automatic source archives as the install package.
 Staging copies for the catalog PR live in `community-index/` (see that
 README). Per [RedBlink publishing docs](https://github.com/Red-Blink/dune-docker-addon-template/blob/main/docs/publishing.md):
 
-1. Publish the `v0.13.5` release first and copy the release asset's SHA-256
+1. Publish the `v0.13.6` release first and copy the release asset's SHA-256
    into `community-index/eda-exchange-bot.json`.
 2. Open a pull request to
    [Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)
