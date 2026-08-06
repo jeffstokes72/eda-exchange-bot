@@ -1,7 +1,7 @@
 "use strict";
 
 // Invariants for the regenerated market seed plan: baked grades, max stacks,
-// durability range, and exclusion of plot/set/memento junk.
+// durability range, and exclusion of plot/NPC/unnamed/unreleased junk.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -106,6 +106,53 @@ test("seed plan excludes plot items, set packs, and social/emote/contract junk",
   assert.equal(/emote/i.test(joined), false);
   // Individual named armor pieces from a themed set are allowed.
   assert.ok(names.some((n) => /Acheronian/i.test(n)));
+});
+
+test("seed plan excludes NPC templates, unnamed items, and unreleased resources", () => {
+  // The game client resolves listing labels from template_id via its string
+  // table. Templates with no names-table entry render as
+  // "<MISSING STRING TABLE ENTRY>"; NPC/placeholder weapons and unreleased
+  // resources (Water @ 1 Solari, Corpse) must never be seeded.
+  const plan = bundledSeedPlan();
+  const itemData = require("../data/item-data.json");
+  const localizedNames = itemData.names || {};
+  const ids = plan.rows.map((r) => r.template_id);
+
+  assert.equal(ids.some((id) => /npc/i.test(id)), false, "no NPC-shaped template may be seeded");
+  for (const bad of [
+    "SmugDmrParaNPC",
+    "ScattergunEliteNPC",
+    "SmugShotEliteNPC",
+    "HarkArEliteNPC",
+    "RocketLauncher_1",
+    "WaterItem",
+    "Corpse",
+    "Mouse_Corpse"
+  ]) {
+    assert.equal(ids.includes(bad), false, `${bad} must not be seeded`);
+    assert.ok(plan.unsafe_template_ids.includes(bad), `${bad} must be on the Drop Unsafe list`);
+  }
+
+  assert.equal(ids.some((id) => id === "WaterItem"), false);
+  assert.equal(plan.rows.some((r) => /^water$/i.test(r.display_name)), false, "Water must not appear by display name either");
+  assert.equal(plan.rows.some((r) => /corpse/i.test(r.display_name)), false, "Corpse listings must not appear");
+
+  for (const row of plan.rows) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(localizedNames, row.template_id),
+      `${row.template_id} must have a string-table name`
+    );
+    assert.ok(String(localizedNames[row.template_id] || "").trim(), `${row.template_id} name must be non-empty`);
+    assert.ok(String(row.display_name || "").trim(), `${row.template_id} display_name must be non-empty`);
+    assert.doesNotMatch(row.display_name, /MISSING STRING TABLE ENTRY/i);
+    assert.doesNotMatch(row.display_name, /^(ph_|xx_|n\/a\b)/i);
+  }
+
+  // Real items whose display name equals the template id still have a names
+  // entry and must keep seeding.
+  for (const keep of ["Kindjal", "Literjon", "Plastone", "Thumper"]) {
+    assert.ok(ids.includes(keep), `${keep} is a real item and must stay seeded`);
+  }
 });
 
 test("seed SQL writes absolute durability into item stats and order wear at 1.0", async () => {

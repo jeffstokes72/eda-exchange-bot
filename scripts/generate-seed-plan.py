@@ -3,7 +3,9 @@
 
 Rules (see CHANGELOG / operator notes):
 - Sell tradeable items + schematics; exclude contracts, cosmetics/customization,
-  construction, emotes, mementos, plot/story/"green" items, and unusable set packs.
+  construction, emotes, mementos, plot/story/NPC/"green" items, templates with
+  no string-table name (they render as "<MISSING STRING TABLE ENTRY>" in-game),
+  unreleased resources (Water, Corpse), and unusable set packs.
 - Commodities list at stack_max with 2 listings.
 - T6 gradeable armor/weapons/stillsuits: stock (q0) + ranks 1-5, 2 each.
 - T6 augments: ranks 1-5 only (no rank 0); honor catalog min_quality_level.
@@ -99,8 +101,20 @@ SET_PACK_RE = re.compile(
     r"pilot set customization|armor set variant|sofa and chair set|mural and baliset|"
     r"^\s*.+\s+set\s*$)"
 )
-STORY_ID_RE = re.compile(r"(?i)(_story_|story_|_memento|memento_|_npc|npc_|ph_|xx_)")
-PLACEHOLDER_NAME_RE = re.compile(r"(?i)^(ph_|xx_|n/a\b)|name\s*$")
+# Plot / NPC / placeholder template ids. Bare `NPC` (SmugDmrParaNPC) must match —
+# the old `_npc|npc_` form only caught the underscore-bounded spellings and let
+# the elite NPC weapons through into the seed.
+STORY_ID_RE = re.compile(r"(?i)(_story|story_|_memento|memento_|npc|ph_|xx_)")
+PLACEHOLDER_NAME_RE = re.compile(r"(?i)^(ph_|xx_|n/a\b|na_)|name\s*$|^xx_cut$")
+# Unreleased / not-for-market resources that are tradeable in the catalog but
+# either have no real in-game listing (Water @ 1 Solari) or are plot props
+# (corpses). Matched by template id so a renamed display string cannot sneak
+# them back in.
+UNRELEASED_TEMPLATE_IDS = frozenset({
+    "WaterItem",
+    "Corpse",
+    "Mouse_Corpse",
+})
 
 
 def round_price(v: int) -> int:
@@ -261,7 +275,7 @@ def is_augment(template_id: str, category: str) -> bool:
     return category.startswith("items/augment/") or bool(AUGMENT_TEMPLATE_RE.match(template_id))
 
 
-def should_exclude(tid: str, entry: dict) -> str | None:
+def should_exclude(tid: str, entry: dict, localized_names: dict | None = None) -> str | None:
     if entry.get("tradeable") is False:
         return "non-tradeable"
     category = entry.get("category") or ""
@@ -281,8 +295,21 @@ def should_exclude(tid: str, entry: dict) -> str | None:
         return "emote"
     if "contract" in category.lower() or "contract" in name.lower():
         return "contract"
+    if tid in UNRELEASED_TEMPLATE_IDS:
+        return "unreleased"
     if STORY_ID_RE.search(tid) or PLACEHOLDER_NAME_RE.search(name):
         return "plot/placeholder"
+    # No localized string-table entry: the game client shows
+    # "<MISSING STRING TABLE ENTRY>" for these template ids. The catalog's
+    # `names` table is authoritative — some real items (Kindjal, Literjon)
+    # legitimately use the template id as their display name, but they still
+    # have a names-table entry. Without that entry the client has nothing to
+    # resolve and the listing must not be seeded.
+    if localized_names is not None:
+        if tid not in localized_names or not str(localized_names.get(tid) or "").strip():
+            return "missing-name"
+    elif not str(name).strip():
+        return "missing-name"
     # Unusable set packs / cosmetic set variants. Individual named pieces
     # (Acheronian Boots, etc.) do not match this.
     if SET_PACK_RE.search(name) and "armor" not in category and "garment" not in category:
@@ -339,6 +366,7 @@ def grades_for(template_id: str, entry: dict, category: str, is_schematic: bool)
 def main() -> None:
     data = json.loads(ITEM_DATA.read_text())
     items: dict = data["items"]
+    localized_names: dict = data.get("names") or {}
 
     old_unsafe: list[str] = []
     if OLD.exists():
@@ -352,7 +380,7 @@ def main() -> None:
     rows: list[dict] = []
 
     for tid, entry in sorted(items.items(), key=lambda kv: (kv[1].get("name") or kv[0], kv[0])):
-        reason = should_exclude(tid, entry)
+        reason = should_exclude(tid, entry, localized_names)
         if reason:
             excluded[reason] += 1
             continue
@@ -374,13 +402,16 @@ def main() -> None:
             continue
         mask, depth = mask_depth
 
+        # Prefer the localized names-table entry; should_exclude already refused
+        # anything without one, so this is the string the client will resolve.
+        display_name = str(localized_names.get(tid) or entry.get("name") or tid).strip()
         base = base_price(entry, is_schematic)
         for grade in grades_for(tid, entry, category, is_schematic):
             dur = durability_for(tier, grade)
             rows.append(
                 {
                     "template_id": tid,
-                    "display_name": entry.get("name") or tid,
+                    "display_name": display_name,
                     "kind": kind,
                     "stack_size": stack,
                     "price": listing_price(base, grade),
@@ -396,10 +427,22 @@ def main() -> None:
                 }
             )
 
-    # Preserve prior unsafe drop list, plus anything still non-tradeable / story.
+    # Preserve prior unsafe drop list, plus anything that must never stay on
+    # the market after a reseed: non-tradeable, plot/NPC ids, mementos,
+    # unreleased denylist entries, and templates with no string-table name.
+    # Drop Unsafe uses this list to sweep leftover bad listings from earlier
+    # seed builds.
     unsafe = set(old_unsafe)
+    unsafe.update(UNRELEASED_TEMPLATE_IDS)
     for tid, entry in items.items():
-        if entry.get("tradeable") is False or STORY_ID_RE.search(tid) or (entry.get("rarity") or "").lower() == "memento":
+        if (
+            entry.get("tradeable") is False
+            or STORY_ID_RE.search(tid)
+            or (entry.get("rarity") or "").lower() == "memento"
+            or tid not in localized_names
+            or not str(localized_names.get(tid) or "").strip()
+            or PLACEHOLDER_NAME_RE.search(entry.get("name") or "")
+        ):
             unsafe.add(tid)
 
     summary = {
@@ -439,7 +482,7 @@ def main() -> None:
 
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
-        "panel_version": "0.13.5",
+        "panel_version": "0.13.6",
         "price_multiplier": PRICE_MULTIPLIER,
         "market_bot_class": "Revy",
         "summary": summary,
@@ -450,7 +493,7 @@ def main() -> None:
             "Schematic grades 1-5 only for T6 rankable armor/weapons/stillsuits/augments; tools and Tier 1-5 stay quality 0.",
             "T6 rankable armor/weapons/stillsuits seed stock (q0) plus ranks 1-5; augments seed ranks 1-5 only (honor min_quality_level; no rank 0).",
             "Commodities use stack_max from the catalog. Absolute durability 100-200 by tier/grade is stored on plan rows for item stats seeding; exchange order wear stays 1.0/1.0.",
-            "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story items, social wearables, unusable set packs.",
+            "Excluded: non-tradeable, contracts, customization/construction, emotes, mementos, plot/story/NPC items, templates with no string-table name, unreleased resources (Water, Corpse), social wearables, unusable set packs.",
             "Write actions run through RedBlink's permissioned database:write addon bridge.",
         ],
         "unsafe_template_ids": sorted(unsafe),

@@ -4,6 +4,26 @@ Notable changes to the EDA Exchange Bot addon, authored and maintained by
 jeffstokes72 with n00bGames (Easy Dune Admin). Written for RedBlink (console
 maintainer review) and both addon authors, documenting what changed and why.
 
+## 0.13.6 - 2026-08-06
+
+### Fixed
+
+- **Seed plan no longer lists unnamed, NPC, or unreleased items**: regenerating
+  from Easy Dune Admin's catalog now refuses:
+  - templates with no entry in the catalog `names` table — the game client
+    resolves listing labels from `template_id` and shows
+    `<MISSING STRING TABLE ENTRY>` when that lookup fails (the spitdart /
+    shotgun / battle-rifle NPC elites at ~1.4M Solari, plus `RocketLauncher_1`);
+  - NPC / plot / placeholder template ids, including bare `…NPC` suffixes the
+    previous `_npc|npc_` filter missed (`SmugDmrParaNPC`, `ScattergunEliteNPC`,
+    `SmugShotEliteNPC`, `HarkArEliteNPC`);
+  - unreleased / not-for-market resources `WaterItem` (Water @ 1 Solari),
+    `Corpse`, and `Mouse_Corpse`.
+  Those ids are also added to `unsafe_template_ids`, so **Drop Unsafe NPC
+  Listings** removes leftovers from earlier seed builds. Real items whose
+  display name equals the template id but still have a names-table entry
+  (Kindjal, Literjon, Plastone, Thumper) keep seeding.
+
 ## 0.13.5 - 2026-08-06
 
 Closes out RedBlink's review of
