@@ -65,6 +65,12 @@ export function normalizeExchangeId(value) {
   return raw;
 }
 
+function normalizeBuybackPriceBasis(value) {
+  const text = String(value || "seeded").trim().toLowerCase();
+  if (text === "average" || text === "lowest") return text;
+  return "seeded";
+}
+
 export function normalizeBuybackSchedule(payload = {}, previous = {}) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Buyback schedule must be a JSON object.");
   const enabled = payload.enabled === undefined ? Boolean(previous.enabled) : payload.enabled;
@@ -84,6 +90,7 @@ export function normalizeBuybackSchedule(payload = {}, previous = {}) {
     exchangeId,
     priceMultiplier: integerField(payload.priceMultiplier ?? previous.priceMultiplier ?? 5, "priceMultiplier", 1, 100),
     buybackPercent: integerField(payload.buybackPercent ?? previous.buybackPercent ?? 60, "buybackPercent", 1, 100),
+    buybackPriceBasis: normalizeBuybackPriceBasis(payload.buybackPriceBasis ?? previous.buybackPriceBasis ?? "seeded"),
     maxBuys: integerField(payload.maxBuys ?? previous.maxBuys ?? 500, "maxBuys", 1, 5000),
     lastRunAt: isoField(previous.lastRunAt),
     lastRunStatus: String(previous.lastRunStatus ?? "").slice(0, 40),
@@ -183,6 +190,12 @@ const BUYBACK_PLAN_LATERAL = `LEFT JOIN LATERAL (
         LIMIT 1
     ) p ON TRUE`;
 
+function buybackLiveBasisAggregateSql(priceBasis) {
+  return priceBasis === "lowest" ? "MIN(o.item_price)" : "AVG(o.item_price)";
+}
+
+const BUYBACK_PLAYER_SELL_SQL = "COALESCE(o.is_npc_order, FALSE) = FALSE AND (b.owner_id IS NULL OR o.owner_id IS DISTINCT FROM b.owner_id)";
+
 // Buyback plan: one exact cap per (template, grade), scaled from each bundled
 // seed row. Seed prices use stepped rounding, so reconstructing higher grades
 // from a grade-0 base can differ from the actual configured market price.
@@ -207,16 +220,113 @@ export function buybackPlanValuesSql(plan, { priceMultiplier, buybackPercent }) 
     .join(",\n");
 }
 
+function buybackMarketPlanCteSql(plan, schedule) {
+  const exchangeId = requireScheduleExchangeId(schedule);
+  const valuesSql = buybackPlanValuesSql(plan, schedule) || "(NULL::text,NULL::bigint,NULL::bigint)";
+  const priceBasis = normalizeBuybackPriceBasis(schedule.buybackPriceBasis);
+  if (priceBasis === "seeded") {
+    return `market_buy_plan(template_id, quality_level, max_unit_price) AS (
+    VALUES
+${valuesSql}
+)`;
+  }
+  const threshold = schedule.buybackPercent;
+  const aggregate = buybackLiveBasisAggregateSql(priceBasis);
+  return `seed_buy_caps(template_id, quality_level, max_unit_price) AS (
+    VALUES
+${valuesSql}
+),
+live_buy_basis AS (
+    SELECT o.template_id,
+           ${BUYBACK_ORDER_GRADE_SQL} AS quality_level,
+           ${aggregate} AS basis_price
+    FROM dune.dune_exchange_orders o
+    JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id
+    LEFT JOIN dune.items i ON i.id = o.item_id
+    LEFT JOIN (SELECT id AS owner_id FROM dune.actors WHERE class = 'Revy' LIMIT 1) b ON TRUE
+    WHERE o.exchange_id = ${exchangeId}
+      AND ${BUYBACK_PLAYER_SELL_SQL}
+      AND o.item_price > 0
+      AND ${BUYBACK_STACK_SQL} > 0
+      AND EXISTS (SELECT 1 FROM seed_buy_caps sc WHERE sc.template_id IS NOT NULL AND sc.template_id = o.template_id)
+    GROUP BY o.template_id, ${BUYBACK_ORDER_GRADE_SQL}
+),
+live_buy_caps AS (
+    SELECT template_id,
+           quality_level,
+           GREATEST(1, FLOOR((basis_price * ${threshold} + 99) / 100))::bigint AS max_unit_price
+    FROM live_buy_basis
+),
+market_buy_plan AS (
+    SELECT template_id, quality_level, max_unit_price FROM live_buy_caps
+    UNION ALL
+    SELECT s.template_id, s.quality_level, s.max_unit_price
+    FROM seed_buy_caps s
+    WHERE s.template_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM live_buy_caps l
+        WHERE l.template_id = s.template_id AND l.quality_level = s.quality_level
+      )
+)`;
+}
+
+function buybackPlanPopulateSql(plan, schedule) {
+  const exchangeId = requireScheduleExchangeId(schedule);
+  const valuesSql = buybackPlanValuesSql(plan, schedule);
+  const priceBasis = normalizeBuybackPriceBasis(schedule.buybackPriceBasis);
+  if (priceBasis === "seeded") {
+    if (!valuesSql) return `-- buyback plan empty: no seeded caps\n`;
+    return `INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price) VALUES
+${valuesSql};`;
+  }
+  const seedValues = valuesSql || "(NULL::text,NULL::bigint,NULL::bigint)";
+  const threshold = schedule.buybackPercent;
+  const aggregate = buybackLiveBasisAggregateSql(priceBasis);
+  return `INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price)
+SELECT template_id, quality_level, max_unit_price FROM (
+    WITH seed_buy_caps(template_id, quality_level, max_unit_price) AS (
+        VALUES
+${seedValues}
+    ),
+    live_buy_basis AS (
+        SELECT o.template_id,
+               ${BUYBACK_ORDER_GRADE_SQL} AS quality_level,
+               ${aggregate} AS basis_price
+        FROM dune.dune_exchange_orders o
+        JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id
+        LEFT JOIN dune.items i ON i.id = o.item_id
+        LEFT JOIN (SELECT id AS owner_id FROM dune.actors WHERE class = 'Revy' LIMIT 1) b ON TRUE
+        WHERE o.exchange_id = ${exchangeId}
+          AND ${BUYBACK_PLAYER_SELL_SQL}
+          AND o.item_price > 0
+          AND ${BUYBACK_STACK_SQL} > 0
+          AND EXISTS (SELECT 1 FROM seed_buy_caps sc WHERE sc.template_id IS NOT NULL AND sc.template_id = o.template_id)
+        GROUP BY o.template_id, ${BUYBACK_ORDER_GRADE_SQL}
+    ),
+    live_buy_caps AS (
+        SELECT template_id,
+               quality_level,
+               GREATEST(1, FLOOR((basis_price * ${threshold} + 99) / 100))::bigint AS max_unit_price
+        FROM live_buy_basis
+    )
+    SELECT template_id, quality_level, max_unit_price FROM live_buy_caps
+    UNION ALL
+    SELECT s.template_id, s.quality_level, s.max_unit_price
+    FROM seed_buy_caps s
+    WHERE s.template_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM live_buy_caps l
+        WHERE l.template_id = s.template_id AND l.quality_level = s.quality_level
+      )
+) plan_rows;`;
+}
+
 // Read-only eligibility probe. This runs without a backup, so idle scheduled
 // ticks are cheap; the write sweep only runs when this finds at least one
 // player listing at or below the threshold.
 export function buildBuybackEligibilitySql(plan, schedule) {
   const exchangeId = requireScheduleExchangeId(schedule);
-  const valuesSql = buybackPlanValuesSql(plan, schedule);
-  return `WITH market_buy_plan(template_id, quality_level, max_unit_price) AS (
-    VALUES
-${valuesSql}
-),
+  return `WITH ${buybackMarketPlanCteSql(plan, schedule)},
 bot AS (
     SELECT id AS owner_id FROM dune.actors WHERE class = 'Revy' LIMIT 1
 )
@@ -227,8 +337,7 @@ LEFT JOIN dune.items i ON i.id = o.item_id
 ${BUYBACK_PLAN_LATERAL}
 LEFT JOIN bot b ON TRUE
 WHERE o.exchange_id = ${exchangeId}
-  AND o.is_npc_order = FALSE
-  AND (b.owner_id IS NULL OR o.owner_id <> b.owner_id)
+  AND ${BUYBACK_PLAYER_SELL_SQL}
   AND p.template_id IS NOT NULL
   AND ${BUYBACK_ELIGIBLE_PREDICATE};`;
 }
@@ -237,12 +346,11 @@ export function buildBuybackSql(plan, schedule) {
   const exchangeId = requireScheduleExchangeId(schedule);
   const threshold = schedule.buybackPercent;
   const maxBuys = schedule.maxBuys;
-  const valuesSql = buybackPlanValuesSql(plan, schedule);
+  const planInsert = buybackPlanPopulateSql(plan, schedule);
   return `CREATE TEMP TABLE market_buy_plan (template_id TEXT NOT NULL, quality_level BIGINT NOT NULL, max_unit_price BIGINT NOT NULL, PRIMARY KEY (template_id, quality_level)) ON COMMIT DROP;
 CREATE TEMP TABLE market_buy_result (purchased INTEGER NOT NULL, total_units BIGINT NOT NULL, total_solari BIGINT NOT NULL, threshold_percent INTEGER NOT NULL, max_buys INTEGER NOT NULL) ON COMMIT DROP;
 CREATE TEMP TABLE market_buy_diagnostics (player_sell_orders BIGINT NOT NULL, known_player_sell_orders BIGINT NOT NULL, eligible_player_sell_orders BIGINT NOT NULL, above_threshold_sell_orders BIGINT NOT NULL, unknown_template_sell_orders BIGINT NOT NULL) ON COMMIT DROP;
-INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price) VALUES
-${valuesSql};
+${planInsert}
 DO $$
 DECLARE
     v_owner_id BIGINT; v_partition_id BIGINT; v_log_order_id BIGINT; v_balance BIGINT; v_purchased INTEGER := 0; v_units BIGINT := 0; v_solari BIGINT := 0; rec RECORD;
@@ -260,12 +368,12 @@ BEGIN
     IF v_balance < 1000000000000 THEN
         PERFORM dune.dune_exchange_modify_user_solari_balance(v_owner_id, 9000000000000 - v_balance);
     END IF;
-    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND ${BUYBACK_ELIGIBLE_PREDICATE}), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price > p.max_unit_price), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LATERAL} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id;
+    INSERT INTO market_buy_diagnostics SELECT COUNT(*), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND ${BUYBACK_ELIGIBLE_PREDICATE}), COUNT(*) FILTER (WHERE p.template_id IS NOT NULL AND o.item_price > 0 AND ${BUYBACK_STACK_SQL} > 0 AND o.item_price > p.max_unit_price), COUNT(*) FILTER (WHERE p.template_id IS NULL) FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LATERAL} WHERE o.exchange_id = ${exchangeId} AND COALESCE(o.is_npc_order, FALSE) = FALSE AND o.owner_id IS DISTINCT FROM v_owner_id;
     -- FOR UPDATE OF o, s SKIP LOCKED is the database-level concurrency guard:
     -- a scheduled sweep racing a manual browser sweep locks the selected order
     -- rows, so concurrent sweeps skip anything already claimed and rows
     -- deleted by a committed sweep drop out of the re-checked result.
-    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, ${BUYBACK_STACK_SQL} AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LATERAL} WHERE o.exchange_id = ${exchangeId} AND o.is_npc_order = FALSE AND o.owner_id <> v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${maxBuys} FOR UPDATE OF o, s SKIP LOCKED LOOP
+    FOR rec IN SELECT o.id AS order_id, o.exchange_id, o.access_point_id, o.owner_id AS seller_actor_id, o.template_id, o.item_price, o.item_id, ${BUYBACK_STACK_SQL} AS actual_stack, p.max_unit_price FROM dune.dune_exchange_orders o JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id LEFT JOIN dune.items i ON i.id = o.item_id ${BUYBACK_PLAN_LATERAL} WHERE o.exchange_id = ${exchangeId} AND COALESCE(o.is_npc_order, FALSE) = FALSE AND o.owner_id IS DISTINCT FROM v_owner_id AND ${BUYBACK_ELIGIBLE_PREDICATE} ORDER BY o.item_price ASC, o.id ASC LIMIT ${maxBuys} FOR UPDATE OF o, s SKIP LOCKED LOOP
         -- Seller "Take Solari" payment entry. item_price stays the per-unit
         -- price (the game multiplies by stack_size itself) and expiration is
         -- the never-expires sentinel so the game server's expire proc cannot

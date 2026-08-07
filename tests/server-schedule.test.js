@@ -27,6 +27,7 @@ function scheduleFixture(overrides = {}) {
     exchangeId: "",
     priceMultiplier: 5,
     buybackPercent: 60,
+    buybackPriceBasis: "seeded",
     maxBuys: 500,
     lastRunAt: "",
     lastRunStatus: "",
@@ -107,6 +108,7 @@ test("saving maps the form to a schedule.set payload with a string exchangeId", 
   harness.setValue("serverIntervalMinutes", 45);
   harness.setValue("serverPriceMultiplier", 7);
   harness.setValue("serverBuybackPercent", 55);
+  harness.setValue("serverBuybackPriceBasis", "average");
   harness.setValue("serverMaxBuys", 250);
   harness.el("serverScheduleEnabled").checked = true;
   harness.el("saveServerSchedule").click();
@@ -119,6 +121,7 @@ test("saving maps the form to a schedule.set payload with a string exchangeId", 
       intervalMinutes: 45,
       priceMultiplier: 7,
       buybackPercent: 55,
+      buybackPriceBasis: "average",
       maxBuys: 250,
       exchangeId: "9007199254740993"
     }
@@ -188,7 +191,7 @@ test("probe sends form overrides and reports the eligible count", async () => {
   await harness.waitFor(() => probePayload !== null, { label: "scheduler.probe call" });
   await harness.flush();
 
-  assert.deepEqual(plain(probePayload), { priceMultiplier: 5, buybackPercent: 50, maxBuys: 500, exchangeId: "77" });
+  assert.deepEqual(plain(probePayload), { priceMultiplier: 5, buybackPercent: 50, buybackPriceBasis: "seeded", maxBuys: 500, exchangeId: "77" });
   assert.equal("enabled" in probePayload, false, "probe overrides must not carry the enabled flag");
   assert.equal("intervalMinutes" in probePayload, false, "probe overrides must not carry the interval");
   const status = harness.el("serverScheduleStatus").textContent;

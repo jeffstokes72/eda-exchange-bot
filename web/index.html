@@ -25,6 +25,13 @@
         <label>Buyback Percentage
           <input id="buybackPercent" type="number" min="1" max="100" step="1" value="60">
         </label>
+        <label>Buyback Price Basis
+          <select id="buybackPriceBasis">
+            <option value="seeded" selected>Seeded NPC price</option>
+            <option value="average">Live market average</option>
+            <option value="lowest">Live market lowest</option>
+          </select>
+        </label>
         <label>Max Buys Per Sweep
           <input id="maxBuys" type="number" min="1" max="5000" step="1" value="500">
         </label>
@@ -47,7 +54,7 @@
         </label>
         <label class="checkbox-line"><input id="clearExisting" type="checkbox" checked> Clear the selected exchange's EDA bot NPC sell listings before seeding</label>
         <label class="checkbox-line"><input id="autoBuyback" type="checkbox"> Auto buyback while this page is open</label>
-        <label class="checkbox-line"><input id="autoSeed" type="checkbox"> Auto reseed NPC market while this page is open (always replaces the bot's own listings first)</label>
+        <label class="checkbox-line"><input id="autoSeed" type="checkbox"> Auto reseed NPC market while this page is open (always replaces the bot's own listings first; timer survives reloads)</label>
         <label class="checkbox-line"><input id="autoCleanup" type="checkbox"> Auto drop unsafe NPC listings while this page is open</label>
       </div>
       <div class="button-row">
@@ -66,7 +73,7 @@
 
     <section>
       <h2>Buyback Sweep Log</h2>
-      <p>Every manual or auto buyback attempt (and dry-run refresh) classifies each player sell listing on the selected exchange. There is <strong>no live market average</strong> — caps are threshold % of the seeded NPC price at that grade. If the per-unit ask qualifies, the whole listed stack is bought in one pass; multiple stacks are separate orders.</p>
+      <p>Every manual or auto buyback attempt (and dry-run refresh) classifies each player sell listing on the selected exchange. Caps are the buyback percentage of the chosen <strong>price basis</strong> (seeded NPC price at that grade, or live player-market average / lowest for that template and grade on this exchange — with seeded fallback when no live comps exist). If the per-unit ask qualifies, the whole listed stack is bought in one pass; multiple stacks are separate orders.</p>
       <div class="button-row">
         <button id="refreshBuybackLog" type="button" class="secondary">Refresh Log (dry-run)</button>
         <button id="clearBuybackLog" type="button" class="secondary">Clear Log</button>
@@ -90,6 +97,13 @@
         <label>Buyback Percentage
           <input id="serverBuybackPercent" type="number" min="1" max="100" step="1" value="60">
         </label>
+        <label>Buyback Price Basis
+          <select id="serverBuybackPriceBasis">
+            <option value="seeded" selected>Seeded NPC price</option>
+            <option value="average">Live market average</option>
+            <option value="lowest">Live market lowest</option>
+          </select>
+        </label>
         <label>Max Buys Per Sweep
           <input id="serverMaxBuys" type="number" min="1" max="5000" step="1" value="500">
         </label>
@@ -104,6 +118,8 @@
       <p class="muted">Enabling requires the <code>scheduler:server</code> permission to be approved in the console's Addons panel. The first run fires one full interval after enabling; the schedule survives console restarts. While the server-side schedule is enabled, the in-page auto buyback checkbox is turned off: concurrent sweeps are safe at the database level but redundant, and each takes its own backup.</p>
       <div id="serverScheduleStatus" class="status">Checking console support...</div>
     </section>
+
+    <div id="serverSeedUnavailableNote" class="status" hidden>Server-side market reseed is not available on this console yet (needs <code>scheduler.seed.*</code> — staged in this addon's <code>console-patches/</code>). Use <strong>Auto reseed</strong> above and keep this page open; the next-run timer is saved across reloads.</div>
 
     <section id="serverSeedScheduleSection" hidden>
       <h2>Server-Side Market Reseed Schedule</h2>
