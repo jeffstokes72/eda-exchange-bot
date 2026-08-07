@@ -18,6 +18,10 @@ Fields: `enabled`, `intervalMinutes` (default **15**, clamp 10–1440),
 `exchangeId` (decimal string), `priceMultiplier` (1–100, default 5),
 `lastRunAt` / `lastRunStatus` / `lastRunDetail` / `nextRunAt`.
 
+Buyback schedules (in the patched `addonJobs.js`) also accept
+`buybackPriceBasis`: `seeded` (default), `average`, or `lowest` — the value
+the buyback percent is applied to before eligibility.
+
 Every run: **backup → clear bot listings on that exchange → seed** from the
 installed addon's `web/market-seed-plan.json`. Player listings are never
 touched. Seed and buyback share one running lock.

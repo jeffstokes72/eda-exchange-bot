@@ -4,6 +4,30 @@ Notable changes to the EDA Exchange Bot addon, authored and maintained by
 jeffstokes72 with n00bGames (Easy Dune Admin). Written for RedBlink (console
 maintainer review) and both addon authors, documenting what changed and why.
 
+## 0.14.0 - 2026-08-07
+
+### Added
+
+- **Buyback price basis dropdown**: choose what the buyback percentage applies
+  to before the % math runs — **Seeded NPC price** (previous default), **Live
+  market average**, or **Live market lowest** for that template and grade on
+  the selected exchange. Live modes still fall back to seeded NPC caps when no
+  player comps exist, and only consider templates present in the seed plan.
+  The same control is saved on the server-side buyback schedule
+  (`buybackPriceBasis`) for consoles that apply the updated
+  `console-patches/addonJobs.js`.
+
+### Fixed
+
+- **In-page auto reseed / buyback / cleanup timers survive reloads**: next-run
+  timestamps are persisted in local settings, so refreshing the addon no
+  longer silently pushes the schedule out another full interval. A timer that
+  came due while the page was closed fires on the next tick after reload.
+- **Clearer server-side reseed gap**: when the console supports buyback
+  `scheduler.*` but not `scheduler.seed.*`, the UI now shows why unattended
+  reseed is unavailable and points operators at the in-page Auto reseed
+  fallback (page must stay open) plus `console-patches/`.
+
 ## 0.13.9 - 2026-08-06
 
 ### Fixed

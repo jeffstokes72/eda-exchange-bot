@@ -10,6 +10,7 @@
   const kindFilterEl = document.getElementById("kindFilter");
   const multiplierEl = document.getElementById("priceMultiplier");
   const thresholdEl = document.getElementById("buybackPercent");
+  const buybackPriceBasisEl = document.getElementById("buybackPriceBasis");
   const maxBuysEl = document.getElementById("maxBuys");
   const exchangeIdEl = document.getElementById("exchangeId");
   const manualExchangeIdEl = document.getElementById("manualExchangeId");
@@ -25,9 +26,11 @@
   const serverIntervalMinutesEl = document.getElementById("serverIntervalMinutes");
   const serverPriceMultiplierEl = document.getElementById("serverPriceMultiplier");
   const serverBuybackPercentEl = document.getElementById("serverBuybackPercent");
+  const serverBuybackPriceBasisEl = document.getElementById("serverBuybackPriceBasis");
   const serverMaxBuysEl = document.getElementById("serverMaxBuys");
   const serverScheduleStatusEl = document.getElementById("serverScheduleStatus");
   const serverSeedScheduleSectionEl = document.getElementById("serverSeedScheduleSection");
+  const serverSeedUnavailableNoteEl = document.getElementById("serverSeedUnavailableNote");
   const serverSeedScheduleEnabledEl = document.getElementById("serverSeedScheduleEnabled");
   const serverSeedIntervalMinutesEl = document.getElementById("serverSeedIntervalMinutes");
   const serverSeedPriceMultiplierEl = document.getElementById("serverSeedPriceMultiplier");
@@ -60,11 +63,12 @@
   const buybackLogStorageKey = "eda-exchange-bot.buyback-log";
 
   // Per-listing buyback sweep outcome codes shown in the Buyback Sweep Log.
-  // 0x0 = bought (or eligible on a dry-run). 0x1 = ask above the seeded cap.
+  // 0x0 = bought (or eligible on a dry-run). 0x1 = ask above the cap for the
+  // selected price basis (seeded NPC / live average / live lowest).
   const BUYBACK_RESULT_CODES = {
     0x0: { label: "success", summary: "Bought (or eligible on dry-run)" },
-    0x1: { label: "price too high", summary: "Ask exceeds buyback cap (threshold % of seeded grade price)" },
-    0x2: { label: "no reference price", summary: "Template not in the seed plan — there is no live market average" },
+    0x1: { label: "price too high", summary: "Ask exceeds buyback cap (threshold % of the selected price basis)" },
+    0x2: { label: "no reference price", summary: "Template not in the seed plan (no seeded or live reference)" },
     0x3: { label: "invalid price", summary: "Non-positive item_price" },
     0x4: { label: "invalid stack", summary: "Stack size is zero or missing" },
     0x5: { label: "max buys limit", summary: "Eligible but past Max Buys Per Sweep this run" },
@@ -123,6 +127,12 @@
   function currentMultiplier() { return clampInteger(multiplierEl.value, payload?.price_multiplier || 5, 1, 100); }
   function currentThreshold() { return clampInteger(thresholdEl.value, 60, 1, 100); }
   function currentMaxBuys() { return clampInteger(maxBuysEl.value, 500, 1, 5000); }
+  function normalizeBuybackPriceBasis(value) {
+    const text = String(value || "seeded").trim().toLowerCase();
+    if (text === "average" || text === "lowest") return text;
+    return "seeded";
+  }
+  function currentBuybackPriceBasis() { return normalizeBuybackPriceBasis(buybackPriceBasisEl.value); }
   function currentAutoIntervalMinutes() { return clampInteger(autoBuybackIntervalEl.value, 30, 10, 1440); }
   function currentAutoSeedIntervalMinutes() { return clampInteger(autoSeedIntervalEl.value, 15, 10, 1440); }
   function currentAutoCleanupIntervalMinutes() { return clampInteger(autoCleanupIntervalEl.value, 360, 10, 1440); }
@@ -139,11 +149,12 @@
   // so they are clamped at the same boundary: a caller cannot hand a builder
   // anything but an integer inside its control's own range. Anything missing
   // falls back to the live control, which is what a one-shot caller wants.
-  function requireBuybackInputs({ multiplier, threshold, maxBuys } = {}) {
+  function requireBuybackInputs({ multiplier, threshold, maxBuys, priceBasis } = {}) {
     return {
       multiplier: clampInteger(multiplier, currentMultiplier(), 1, 100),
       threshold: clampInteger(threshold, currentThreshold(), 1, 100),
-      maxBuys: clampInteger(maxBuys, currentMaxBuys(), 1, 5000)
+      maxBuys: clampInteger(maxBuys, currentMaxBuys(), 1, 5000),
+      priceBasis: normalizeBuybackPriceBasis(priceBasis ?? currentBuybackPriceBasis())
     };
   }
   function currentExchangeIdValue() {
@@ -160,6 +171,7 @@
       localStorage.setItem(settingsStorageKey, JSON.stringify({
         priceMultiplier: multiplierEl.value,
         buybackPercent: thresholdEl.value,
+        buybackPriceBasis: currentBuybackPriceBasis(),
         maxBuys: maxBuysEl.value,
         clearExisting: clearExistingEl.checked,
         autoBuyback: autoBuybackEl.checked,
@@ -167,7 +179,10 @@
         autoSeed: autoSeedEl.checked,
         autoSeedInterval: autoSeedIntervalEl.value,
         autoCleanup: autoCleanupEl.checked,
-        autoCleanupInterval: autoCleanupIntervalEl.value
+        autoCleanupInterval: autoCleanupIntervalEl.value,
+        nextAutoRunAt: nextAutoRunAt || 0,
+        nextAutoSeedAt: nextAutoSeedAt || 0,
+        nextAutoCleanupAt: nextAutoCleanupAt || 0
       }));
     } catch { /* storage unavailable; settings just aren't remembered */ }
   }
@@ -177,6 +192,7 @@
     if (!saved || typeof saved !== "object") return;
     if (saved.priceMultiplier != null) multiplierEl.value = String(saved.priceMultiplier);
     if (saved.buybackPercent != null) thresholdEl.value = String(saved.buybackPercent);
+    if (saved.buybackPriceBasis != null) buybackPriceBasisEl.value = normalizeBuybackPriceBasis(saved.buybackPriceBasis);
     if (saved.maxBuys != null) maxBuysEl.value = String(saved.maxBuys);
     if (typeof saved.clearExisting === "boolean") clearExistingEl.checked = saved.clearExisting;
     if (typeof saved.autoBuyback === "boolean") autoBuybackEl.checked = saved.autoBuyback;
@@ -185,6 +201,12 @@
     if (saved.autoSeedInterval != null) autoSeedIntervalEl.value = String(saved.autoSeedInterval);
     if (typeof saved.autoCleanup === "boolean") autoCleanupEl.checked = saved.autoCleanup;
     if (saved.autoCleanupInterval != null) autoCleanupIntervalEl.value = String(saved.autoCleanupInterval);
+    const savedBuybackAt = Number(saved.nextAutoRunAt);
+    const savedSeedAt = Number(saved.nextAutoSeedAt);
+    const savedCleanupAt = Number(saved.nextAutoCleanupAt);
+    if (Number.isFinite(savedBuybackAt) && savedBuybackAt > 0) nextAutoRunAt = savedBuybackAt;
+    if (Number.isFinite(savedSeedAt) && savedSeedAt > 0) nextAutoSeedAt = savedSeedAt;
+    if (Number.isFinite(savedCleanupAt) && savedCleanupAt > 0) nextAutoCleanupAt = savedCleanupAt;
   }
 
   function rememberedExchangeIds() {
@@ -617,7 +639,7 @@ COMMIT;`;
         ELSE 'eligible'
     END`;
   const BUYBACK_RESULT_DETAIL_SQL = `CASE
-        WHEN p.template_id IS NULL THEN 'template not in seed plan (no live market average; caps come only from seeded NPC prices)'
+        WHEN p.template_id IS NULL THEN 'template not in seed plan (no seeded or live reference for this template)'
         WHEN o.item_price <= 0 THEN 'item_price must be > 0'
         WHEN ${BUYBACK_STACK_SQL} <= 0 THEN 'stack size must be > 0'
         WHEN o.item_price > p.max_unit_price THEN 'ask ' || o.item_price::text || ' > cap ' || p.max_unit_price::text
@@ -628,7 +650,8 @@ COMMIT;`;
   // seeded row's price. Seeded grade prices are not always q0 × grade_mult
   // after stepped rounding, so deriving caps from a grade-0 base and
   // re-applying multipliers in SQL undershoots (or overshoots) true 60% of the
-  // seeded market at that grade. Player listings never affect these caps.
+  // seeded market at that grade. Player listings never affect these caps when
+  // the price basis is "seeded".
   function buybackPlanValuesSql({ multiplier = currentMultiplier(), threshold = currentThreshold() } = {}) {
     const rows = baseRowsForCurrentMultiplier(multiplier);
     const maxPrice = new Map();
@@ -658,19 +681,120 @@ COMMIT;`;
     return buybackPlanValuesSql(inputs) || "(NULL::text,NULL::bigint,NULL::bigint)";
   }
 
-  // Every buyback statement is generated from four inputs the admin can change
-  // at any moment: the exchange selector, the price multiplier, the buyback
-  // threshold, and Max Buys. All four arrive as arguments (see
-  // captureBuybackOperation) so one operation cannot classify against one set
-  // of caps and write against another. The live UI values are only the
-  // fallback for one-shot callers.
+  function buybackLiveBasisAggregateSql(priceBasis) {
+    return priceBasis === "lowest" ? "MIN(o.item_price)" : "AVG(o.item_price)";
+  }
+
+  // Live market average/lowest caps for templates in the seed plan, with seeded
+  // NPC caps filling any (template, grade) that has no live player comps yet.
+  function buybackMarketPlanCteSql(exchangeId, inputs) {
+    const { threshold, priceBasis } = requireBuybackInputs(inputs);
+    const valuesSql = buybackPlanValuesOrNullSql({ ...requireBuybackInputs(inputs) });
+    if (priceBasis === "seeded") {
+      return `market_buy_plan(template_id, quality_level, max_unit_price) AS (
+    VALUES
+${valuesSql}
+)`;
+    }
+    const aggregate = buybackLiveBasisAggregateSql(priceBasis);
+    return `seed_buy_caps(template_id, quality_level, max_unit_price) AS (
+    VALUES
+${valuesSql}
+),
+live_buy_basis AS (
+    SELECT o.template_id,
+           ${BUYBACK_ORDER_GRADE_SQL} AS quality_level,
+           ${aggregate} AS basis_price
+    FROM dune.dune_exchange_orders o
+    JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id
+    LEFT JOIN dune.items i ON i.id = o.item_id
+    LEFT JOIN (SELECT id FROM dune.actors WHERE class = 'Revy' LIMIT 1) bot ON TRUE
+    WHERE o.exchange_id = ${exchangeId}
+      AND ${buybackPlayerSellSql("bot.id")}
+      AND o.item_price > 0
+      AND ${BUYBACK_STACK_SQL} > 0
+      AND EXISTS (SELECT 1 FROM seed_buy_caps sc WHERE sc.template_id IS NOT NULL AND sc.template_id = o.template_id)
+    GROUP BY o.template_id, ${BUYBACK_ORDER_GRADE_SQL}
+),
+live_buy_caps AS (
+    SELECT template_id,
+           quality_level,
+           GREATEST(1, FLOOR((basis_price * ${threshold} + 99) / 100))::bigint AS max_unit_price
+    FROM live_buy_basis
+),
+market_buy_plan AS (
+    SELECT template_id, quality_level, max_unit_price FROM live_buy_caps
+    UNION ALL
+    SELECT s.template_id, s.quality_level, s.max_unit_price
+    FROM seed_buy_caps s
+    WHERE s.template_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM live_buy_caps l
+        WHERE l.template_id = s.template_id AND l.quality_level = s.quality_level
+      )
+)`;
+  }
+
+  function buybackPlanPopulateSql(exchangeId, inputs) {
+    const { threshold, priceBasis } = requireBuybackInputs(inputs);
+    const valuesSql = buybackPlanValuesSql(inputs);
+    if (priceBasis === "seeded") {
+      return valuesSql
+        ? `INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price) VALUES\n${valuesSql};`
+        : `-- buyback plan empty: no seeded caps; every player listing logs as 0x2\n`;
+    }
+    const seedValues = valuesSql || "(NULL::text,NULL::bigint,NULL::bigint)";
+    const aggregate = buybackLiveBasisAggregateSql(priceBasis);
+    return `INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price)
+SELECT template_id, quality_level, max_unit_price FROM (
+    WITH seed_buy_caps(template_id, quality_level, max_unit_price) AS (
+        VALUES
+${seedValues}
+    ),
+    live_buy_basis AS (
+        SELECT o.template_id,
+               ${BUYBACK_ORDER_GRADE_SQL} AS quality_level,
+               ${aggregate} AS basis_price
+        FROM dune.dune_exchange_orders o
+        JOIN dune.dune_exchange_sell_orders s ON s.order_id = o.id
+        LEFT JOIN dune.items i ON i.id = o.item_id
+        LEFT JOIN (SELECT id FROM dune.actors WHERE class = 'Revy' LIMIT 1) bot ON TRUE
+        WHERE o.exchange_id = ${exchangeId}
+          AND ${buybackPlayerSellSql("bot.id")}
+          AND o.item_price > 0
+          AND ${BUYBACK_STACK_SQL} > 0
+          AND EXISTS (SELECT 1 FROM seed_buy_caps sc WHERE sc.template_id IS NOT NULL AND sc.template_id = o.template_id)
+        GROUP BY o.template_id, ${BUYBACK_ORDER_GRADE_SQL}
+    ),
+    live_buy_caps AS (
+        SELECT template_id,
+               quality_level,
+               GREATEST(1, FLOOR((basis_price * ${threshold} + 99) / 100))::bigint AS max_unit_price
+        FROM live_buy_basis
+    )
+    SELECT template_id, quality_level, max_unit_price FROM live_buy_caps
+    UNION ALL
+    SELECT s.template_id, s.quality_level, s.max_unit_price
+    FROM seed_buy_caps s
+    WHERE s.template_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM live_buy_caps l
+        WHERE l.template_id = s.template_id AND l.quality_level = s.quality_level
+      )
+) plan_rows;`;
+  }
+
+  // Every buyback statement is generated from the inputs the admin can change
+  // at any moment: exchange, multiplier, buyback threshold, price basis, and
+  // Max Buys. All arrive as arguments (see captureBuybackOperation) so one
+  // operation cannot classify against one set of caps and write against another.
+  // The live UI values are only the fallback for one-shot callers.
   function buildBuybackSql(exchangeId, inputs) {
     const targetExchangeId = requireExchangeId(exchangeId);
-    const { multiplier, threshold, maxBuys } = requireBuybackInputs(inputs);
-    const valuesSql = buybackPlanValuesSql({ multiplier, threshold });
-    const planInsert = valuesSql
-      ? `INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price) VALUES\n${valuesSql};`
-      : `-- buyback plan empty: no seeded caps; every player listing logs as 0x2\n`;
+    const { multiplier, threshold, maxBuys, priceBasis } = requireBuybackInputs(inputs);
+    void multiplier;
+    void priceBasis;
+    const planInsert = buybackPlanPopulateSql(targetExchangeId, inputs);
     return `BEGIN;
 CREATE TEMP TABLE market_buy_plan (template_id TEXT NOT NULL, quality_level BIGINT NOT NULL, max_unit_price BIGINT NOT NULL, PRIMARY KEY (template_id, quality_level)) ON COMMIT DROP;
 CREATE TEMP TABLE market_buy_result (purchased INTEGER NOT NULL, total_units BIGINT NOT NULL, total_solari BIGINT NOT NULL, threshold_percent INTEGER NOT NULL, max_buys INTEGER NOT NULL) ON COMMIT DROP;
@@ -759,14 +883,11 @@ COMMIT;`;
   // at least one player listing at or below the threshold.
   function buildBuybackEligibilitySql(exchangeId, inputs) {
     const targetExchangeId = requireExchangeId(exchangeId);
-    const valuesSql = buybackPlanValuesSql(requireBuybackInputs(inputs));
-    if (!valuesSql) {
+    const resolved = requireBuybackInputs(inputs);
+    if (resolved.priceBasis === "seeded" && !buybackPlanValuesSql(resolved)) {
       return `SELECT '0' AS eligible_orders;`;
     }
-    return `WITH market_buy_plan(template_id, quality_level, max_unit_price) AS (
-    VALUES
-${valuesSql}
-),
+    return `WITH ${buybackMarketPlanCteSql(targetExchangeId, resolved)},
 bot AS (
     SELECT id AS owner_id FROM dune.actors WHERE class = 'Revy' LIMIT 1
 )
@@ -782,14 +903,12 @@ WHERE o.exchange_id = ${targetExchangeId}
   }
 
   // Read-only per-listing classification for the Buyback Sweep Log dry-run.
-  // Caps come only from the seeded plan — there is no live market average.
+  // Caps come from the selected price basis (seeded NPC, live average, or live
+  // lowest), with seeded NPC prices filling gaps when live comps are missing.
   function buildBuybackClassifySql(exchangeId, inputs) {
     const targetExchangeId = requireExchangeId(exchangeId);
-    const valuesSql = buybackPlanValuesOrNullSql(requireBuybackInputs(inputs));
-    return `WITH market_buy_plan(template_id, quality_level, max_unit_price) AS (
-    VALUES
-${valuesSql}
-),
+    const resolved = requireBuybackInputs(inputs);
+    return `WITH ${buybackMarketPlanCteSql(targetExchangeId, resolved)},
 bot AS (
     SELECT id AS owner_id FROM dune.actors WHERE class = 'Revy' LIMIT 1
 )
@@ -1320,12 +1439,13 @@ WHERE f.completion_type = 4
       setAutoStatus(prefix === "Auto market ops" ? "Auto market ops are off." : `${prefix}.`);
       return;
     }
-    setAutoStatus(`${prefix}: ${enabled.join(", ")} while this page stays open. ${describeMarketOpsSchedule()}.`);
+    setAutoStatus(`${prefix}: ${enabled.join(", ")} while this page stays open (next-run times survive reloads). ${describeMarketOpsSchedule()}.`);
   }
 
   async function runAutoBuyback() {
     autoRunning = true;
     nextAutoRunAt = Date.now() + currentAutoIntervalMinutes() * 60000;
+    persistSettings();
     try {
       // Captured before the eligibility probe and handed to the sweep it
       // triggers, so the write cannot land on an exchange that was never
@@ -1355,6 +1475,7 @@ WHERE f.completion_type = 4
       // Re-arm from completion time, not sweep start, so a write that outlasts
       // the interval cannot trigger back-to-back runs.
       nextAutoRunAt = Date.now() + currentAutoIntervalMinutes() * 60000;
+      persistSettings();
       autoRunning = false;
     }
   }
@@ -1362,6 +1483,7 @@ WHERE f.completion_type = 4
   async function runAutoSeed() {
     autoRunning = true;
     nextAutoSeedAt = Date.now() + currentAutoSeedIntervalMinutes() * 60000;
+    persistSettings();
     try {
       // forceClear is mandatory: without it a repeat interval would stack another
       // full bot market on top of the last one. RedBlink's write bridge takes the
@@ -1377,6 +1499,7 @@ WHERE f.completion_type = 4
       setAutoStatus(`Auto seed failed: ${error.message || String(error)}. ${describeMarketOpsSchedule()}.`, "status error");
     } finally {
       nextAutoSeedAt = Date.now() + currentAutoSeedIntervalMinutes() * 60000;
+      persistSettings();
       autoRunning = false;
     }
   }
@@ -1384,6 +1507,7 @@ WHERE f.completion_type = 4
   async function runAutoCleanup() {
     autoRunning = true;
     nextAutoCleanupAt = Date.now() + currentAutoCleanupIntervalMinutes() * 60000;
+    persistSettings();
     try {
       setAutoStatus("Auto cleanup: dropping unsafe NPC listings...");
       const ok = await runWrite("Auto drop unsafe NPC listings", buildDropUnsafeSql, { confirmPrompt: false });
@@ -1396,6 +1520,7 @@ WHERE f.completion_type = 4
       setAutoStatus(`Auto cleanup failed: ${error.message || String(error)}. ${describeMarketOpsSchedule()}.`, "status error");
     } finally {
       nextAutoCleanupAt = Date.now() + currentAutoCleanupIntervalMinutes() * 60000;
+      persistSettings();
       autoRunning = false;
     }
   }
@@ -1427,32 +1552,48 @@ WHERE f.completion_type = 4
     }
   }
 
-  function onAutoBuybackToggle() {
+  function onAutoBuybackToggle({ fromRestore = false } = {}) {
     if (autoBuybackEl.checked) {
       // First run happens one full interval after enabling, so turning the
-      // feature on never fires an immediate surprise write.
-      nextAutoRunAt = Date.now() + currentAutoIntervalMinutes() * 60000;
+      // feature on never fires an immediate surprise write. Reloads keep the
+      // saved next-run time; a past-due timer fires on the next tick.
+      if (!fromRestore || !nextAutoRunAt) {
+        nextAutoRunAt = Date.now() + currentAutoIntervalMinutes() * 60000;
+      } else if (nextAutoRunAt <= Date.now()) {
+        nextAutoRunAt = Date.now();
+      }
     } else {
       nextAutoRunAt = 0;
     }
+    persistSettings();
     refreshMarketOpsStatus();
   }
 
-  function onAutoSeedToggle() {
+  function onAutoSeedToggle({ fromRestore = false } = {}) {
     if (autoSeedEl.checked) {
-      nextAutoSeedAt = Date.now() + currentAutoSeedIntervalMinutes() * 60000;
+      if (!fromRestore || !nextAutoSeedAt) {
+        nextAutoSeedAt = Date.now() + currentAutoSeedIntervalMinutes() * 60000;
+      } else if (nextAutoSeedAt <= Date.now()) {
+        nextAutoSeedAt = Date.now();
+      }
     } else {
       nextAutoSeedAt = 0;
     }
+    persistSettings();
     refreshMarketOpsStatus();
   }
 
-  function onAutoCleanupToggle() {
+  function onAutoCleanupToggle({ fromRestore = false } = {}) {
     if (autoCleanupEl.checked) {
-      nextAutoCleanupAt = Date.now() + currentAutoCleanupIntervalMinutes() * 60000;
+      if (!fromRestore || !nextAutoCleanupAt) {
+        nextAutoCleanupAt = Date.now() + currentAutoCleanupIntervalMinutes() * 60000;
+      } else if (nextAutoCleanupAt <= Date.now()) {
+        nextAutoCleanupAt = Date.now();
+      }
     } else {
       nextAutoCleanupAt = 0;
     }
+    persistSettings();
     refreshMarketOpsStatus();
   }
 
@@ -1484,6 +1625,7 @@ WHERE f.completion_type = 4
       intervalMinutes: clampInteger(serverIntervalMinutesEl.value, 30, 10, 1440),
       priceMultiplier: clampInteger(serverPriceMultiplierEl.value, 5, 1, 100),
       buybackPercent: clampInteger(serverBuybackPercentEl.value, 60, 1, 100),
+      buybackPriceBasis: normalizeBuybackPriceBasis(serverBuybackPriceBasisEl.value),
       maxBuys: clampInteger(serverMaxBuysEl.value, 500, 1, 5000)
     };
     // exchangeId must travel as a string: BIGINT ids above
@@ -1501,6 +1643,7 @@ WHERE f.completion_type = 4
       if (schedule.intervalMinutes != null) serverIntervalMinutesEl.value = String(schedule.intervalMinutes);
       if (schedule.priceMultiplier != null) serverPriceMultiplierEl.value = String(schedule.priceMultiplier);
       if (schedule.buybackPercent != null) serverBuybackPercentEl.value = String(schedule.buybackPercent);
+      if (schedule.buybackPriceBasis != null) serverBuybackPriceBasisEl.value = normalizeBuybackPriceBasis(schedule.buybackPriceBasis);
       if (schedule.maxBuys != null) serverMaxBuysEl.value = String(schedule.maxBuys);
     }
     const parts = [];
@@ -1600,8 +1743,8 @@ WHERE f.completion_type = 4
     probeButton.disabled = true;
     try {
       // The probe accepts only these override fields; extras are rejected.
-      const { exchangeId, priceMultiplier, buybackPercent, maxBuys } = serverScheduleFormValues();
-      const overrides = { priceMultiplier, buybackPercent, maxBuys };
+      const { exchangeId, priceMultiplier, buybackPercent, buybackPriceBasis, maxBuys } = serverScheduleFormValues();
+      const overrides = { priceMultiplier, buybackPercent, buybackPriceBasis, maxBuys };
       if (exchangeId) overrides.exchangeId = exchangeId;
       setServerScheduleStatus("Probing eligibility (read-only; no backup is taken)...");
       const result = await requestBridge("scheduler.probe", overrides);
@@ -1724,12 +1867,21 @@ WHERE f.completion_type = 4
     try {
       const schedule = await requestBridge("scheduler.seed.schedule.get");
       serverSeedScheduleSupported = true;
+      if (serverSeedUnavailableNoteEl) serverSeedUnavailableNoteEl.hidden = true;
       serverSeedScheduleSectionEl.hidden = false;
       renderServerSeedSchedule(schedule, { populateForm: true });
     } catch (error) {
       const message = String(error?.message || error);
-      if (/unsupported addon action/i.test(message)) return;
+      if (/unsupported addon action/i.test(message)) {
+        // Buyback can already be unattended while seed still needs the console
+        // patch — surface that so operators do not think reseed is broken.
+        if (serverScheduleSupported && serverSeedUnavailableNoteEl) {
+          serverSeedUnavailableNoteEl.hidden = false;
+        }
+        return;
+      }
       serverSeedScheduleSupported = true;
+      if (serverSeedUnavailableNoteEl) serverSeedUnavailableNoteEl.hidden = true;
       serverSeedScheduleSectionEl.hidden = false;
       setServerSeedScheduleStatus(`Server-side reseed status failed to load: ${message} Use Refresh Status to retry.`, "status error");
     }
@@ -1824,14 +1976,14 @@ WHERE f.completion_type = 4
 
   restoreSettings();
   restoreBuybackLog();
-  onAutoBuybackToggle();
-  onAutoSeedToggle();
-  onAutoCleanupToggle();
+  onAutoBuybackToggle({ fromRestore: true });
+  onAutoSeedToggle({ fromRestore: true });
+  onAutoCleanupToggle({ fromRestore: true });
 
   filterEl.addEventListener("input", renderRows);
   kindFilterEl.addEventListener("change", renderRows);
   multiplierEl.addEventListener("change", () => { persistSettings(); refreshPreview(); });
-  for (const el of [thresholdEl, maxBuysEl, clearExistingEl]) {
+  for (const el of [thresholdEl, maxBuysEl, clearExistingEl, buybackPriceBasisEl]) {
     el.addEventListener("change", persistSettings);
   }
   autoBuybackEl.addEventListener("change", () => { persistSettings(); onAutoBuybackToggle(); });
@@ -1860,7 +2012,9 @@ WHERE f.completion_type = 4
   document.getElementById("refreshServerSeedSchedule").addEventListener("click", () => void loadServerSeedSchedule({ populateForm: true }));
   window.setInterval(autoMarketOpsTick, 15000);
   window.setInterval(serverSchedulePollTick, 45000);
-  void detectServerSchedule();
-  void detectServerSeedSchedule();
+  void (async () => {
+    await detectServerSchedule();
+    await detectServerSeedSchedule();
+  })();
   loadSeedPlan();
 })();

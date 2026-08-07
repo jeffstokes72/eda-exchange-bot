@@ -47,12 +47,15 @@ them.
 - **Commodities at max stack**: materials use catalog `stack_max` (2 listings
   each). Regenerate with `python3 scripts/generate-seed-plan.py`.
 - **Buyback sweeps**: buys eligible player sell listings at or below a
-  configurable percentage of the **seeded price at that listing's grade**
-  (not a live market average — player posts cannot lower the cap). A listing's
-  grade is the higher of the exchange order's and the backing item's
-  `quality_level`, and listings at a grade the plan does not seed are capped by
-  the nearest seeded grade below them rather than being skipped. Eligibility is
-  the per-unit ask; when it qualifies, quantity is the whole listed stack
+  configurable percentage of the chosen **price basis** — seeded NPC price at
+  that listing's grade (default), or the live player-market **average** /
+  **lowest** ask for that template and grade on the selected exchange. Live
+  modes fall back to seeded caps when no player comps exist and only consider
+  templates in the seed plan. A listing's grade is the higher of the exchange
+  order's and the backing item's `quality_level`, and listings at a grade the
+  plan does not seed are capped by the nearest seeded grade below them rather
+  than being skipped. Eligibility is the per-unit ask; when it qualifies,
+  quantity is the whole listed stack
   (`GREATEST(items.stack_size, initial_stack_size)`), so unsold full stacks and
   listings whose item row still shows `stack_size = 1` pay in one pass.
   Multiple stacks of the same commodity are separate orders. An empty buy plan
@@ -73,7 +76,7 @@ them.
   ([Red-Blink/dune-awakening-selfhost-docker#103](https://github.com/Red-Blink/dune-awakening-selfhost-docker/pull/103)),
   the console API process runs the buyback loop itself, so sweeps keep running
   with the addon page closed. The addon saves the schedule (interval,
-  exchange, price multiplier, buyback percent, max buys) through typed bridge
+  exchange, price multiplier, buyback percent, price basis, max buys) through typed bridge
   actions; the console builds all SQL server-side from the bundled seed plan
   and never accepts SQL for scheduled runs. Every run probes eligibility with
   a read-only query first and takes a pre-write backup only when there is
@@ -82,7 +85,8 @@ them.
   consoles. Unsafe-cleanup is not a console scheduler job yet (use the in-page
   toggle). Market reseed is scheduled through `scheduler.seed.*` when the
   console build supports it (see `console-patches/`); otherwise the in-page
-  auto reseed fallback applies. Current RedBlink builds align scheduled buyback
+  auto reseed fallback applies (page must stay open; next-run times survive
+  reloads). Current RedBlink builds align scheduled buyback
   pricing/stacks with this addon's in-page logic (per-grade caps, full stacks,
   nearest-grade fallback); the in-page Buyback Sweep Log still only covers
   sweeps run from this page.
@@ -242,17 +246,17 @@ dist/eda-exchange-bot-<version>.zip.sha256
 2. Create and push a matching tag:
 
    ```bash
-   git tag v0.13.9
-   git push origin v0.13.9
+   git tag v0.14.0
+   git push origin v0.14.0
    ```
 
-The tag **must** be `v` + `addon.json.version` (for example `v0.13.9`). The
+The tag **must** be `v` + `addon.json.version` (for example `v0.14.0`). The
 release workflow refuses a mismatched tag. GitHub Actions validates the addon,
 packages `addon.json` + `web/`, creates the GitHub Release, and uploads:
 
 ```text
-eda-exchange-bot-0.13.9.zip
-eda-exchange-bot-0.13.9.zip.sha256
+eda-exchange-bot-0.14.0.zip
+eda-exchange-bot-0.14.0.zip.sha256
 ```
 
 Do not use GitHub's automatic source archives as the install package.
@@ -262,7 +266,7 @@ Do not use GitHub's automatic source archives as the install package.
 Staging copies for the catalog PR live in `community-index/` (see that
 README). Per [RedBlink publishing docs](https://github.com/Red-Blink/dune-docker-addon-template/blob/main/docs/publishing.md):
 
-1. Publish the `v0.13.9` release first and copy the release asset's SHA-256
+1. Publish the `v0.14.0` release first and copy the release asset's SHA-256
    into `community-index/eda-exchange-bot.json`.
 2. Open a pull request to
    [Red-Blink/dune-docker-addons](https://github.com/Red-Blink/dune-docker-addons)
