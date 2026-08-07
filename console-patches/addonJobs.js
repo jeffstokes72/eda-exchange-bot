@@ -275,6 +275,7 @@ function buybackPlanPopulateSql(plan, schedule) {
   const valuesSql = buybackPlanValuesSql(plan, schedule);
   const priceBasis = normalizeBuybackPriceBasis(schedule.buybackPriceBasis);
   if (priceBasis === "seeded") {
+    if (!valuesSql) return `-- buyback plan empty: no seeded caps\n`;
     return `INSERT INTO market_buy_plan (template_id, quality_level, max_unit_price) VALUES
 ${valuesSql};`;
   }
