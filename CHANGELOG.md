@@ -27,6 +27,10 @@ maintainer review) and both addon authors, documenting what changed and why.
   `scheduler.*` but not `scheduler.seed.*`, the UI now shows why unattended
   reseed is unavailable and points operators at the in-page Auto reseed
   fallback (page must stay open) plus `console-patches/`.
+- **Console seed job nested transaction**: `buildMarketSeedSql` no longer wraps
+  SQL in `BEGIN`/`COMMIT` when `executeSeedRun` already uses `db.transaction()`
+  (parity with buyback). Nested delimiters could end the outer txn early and
+  make scheduled reseeds fail or report zero listings.
 
 ## 0.13.9 - 2026-08-06
 
